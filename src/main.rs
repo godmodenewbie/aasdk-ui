@@ -17,56 +17,39 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tower_http::services::ServeDir;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
-const CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
-MIIDKTCCAhGgAwIBAgIUcCv02YtqjLw0zJQiObZFcxPCCQEwDQYJKoZIhvcNAQEL\n\
-BQAwJDEQMA4GA1UECgwHRXhhbXBsZTEQMA4GA1UEAwwHRXhhbXBsZTAeFw0yNjAz\n\
-MjkxMTMyNDRaFw0zNjAzMjYxMTMyNDRaMCQxEDAOBgNVBAoMB0V4YW1wbGUxEDAO\n\
-BgNVBAMMB0V4YW1wbGUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCs\n\
-d0MFVD9Rw6J1kVWpJuNUn4LPfNDrWm03tMgmOWDjFywqmBsRaZnwoIovI0UhTXac\n\
-Nz02PO14OGv+0IdkWOvT0S0G7h9NkKsQ2NFQmvvfKRjiVq52y+x27YVkEWsH4bZ1\n\
-y2ucIoBuA24b6k9nZsqGChOhrHE6waIWNwrh8d+2Oae8F5iWZiQfjZj4m534PQ1r\n\
-TrnGHEdexKJmNoSlAChdtDy2v+7az9uhqdcvtFlSC8Aa/+FyBb2s4rj5yaRHL5++\n\
-HhRsS0cchkijEJL0V9S3GQvnxJ0lirLmWoojtHCbWvtc6YdiNiLl14jURg+U6MMs\n\
-JTXyKeVbhWwvc8Vss/z9AgMBAAGjUzBRMB0GA1UdDgQWBBR2fy86e4/rGI7FBM53\n\
-4GkMxd4zjTAfBgNVHSMEGDAWgBR2fy86e4/rGI7FBM534GkMxd4zjTAPBgNVHRMB\n\
-Af8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCbX9SeIMaRb9RSg4oxxukXwPzj\n\
-JonOdiontBZAeYsIY+OMyUeApsD8aVk7BnhzHxcayP/d//sgsGUZV2f34/V5Whg5\n\
-gewY8MXptaiAng3RXadbPHVU75P5BPrBZZ+FUSuTo2i3s0a1R3WSd+UEjhY45TCa\n\
-cxmnolFClzN3ACZpqbYaBcWRw4iiZuesCJh5b2+qXA52mHk7aa/Zu4xiDYodJ/2y\n\
-/3gfCp+Smpu5TLab6xU7COXAG2rvIknMNVCZxUVMYgW/dYKT3723pzWnXYUwP20R\n\
-VpzCr4vR3DQW6Ru7onFJhgxd+fHCR0v98vMPM4u8Hs6TmGpsobiUp/PZ0WM9\n\
------END CERTIFICATE-----\n";
+// =====================================================================
+//  DEVICE SPOOFING: Pioneer AVH-W4500NEX OEM Head Unit Identifiers
+//  These values mimic a real certified Pioneer head unit to pass
+//  Android Auto's "Communication Error 7" (device not certified) check.
+//  The phone verifies these fields during the AA handshake (Service List
+//  negotiation), not during TLS. Using real OEM values significantly
+//  increases compatibility.
+// =====================================================================
+const HU_NAME:         &str = "AVH-W4500NEX";
+const HU_CAR_MODEL:    &str = "AVH-W4500NEX";
+const HU_CAR_YEAR:     &str = "2019";
+const HU_CAR_SERIAL:   &str = "PIONEER0001";
+const HU_MANUFACTURER: &str = "Pioneer";
+const HU_MODEL:        &str = "AVH-W4500NEX";
+const HU_SW_BUILD:     &str = "1";
+const HU_SW_VERSION:   &str = "1.0";
 
-const KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCsd0MFVD9Rw6J1\n\
-kVWpJuNUn4LPfNDrWm03tMgmOWDjFywqmBsRaZnwoIovI0UhTXacNz02PO14OGv+\n\
-0IdkWOvT0S0G7h9NkKsQ2NFQmvvfKRjiVq52y+x27YVkEWsH4bZ1y2ucIoBuA24b\n\
-6k9nZsqGChOhrHE6waIWNwrh8d+2Oae8F5iWZiQfjZj4m534PQ1rTrnGHEdexKJm\n\
-NoSlAChdtDy2v+7az9uhqdcvtFlSC8Aa/+FyBb2s4rj5yaRHL5++HhRsS0cchkij\n\
-EJL0V9S3GQvnxJ0lirLmWoojtHCbWvtc6YdiNiLl14jURg+U6MMsJTXyKeVbhWwv\n\
-c8Vss/z9AgMBAAECggEAAqx2pYaA1MuroRb3tP+dVpqCdKUCuCNWvh5XXABXuC2L\n\
-yb1B7iss78YNXl21nKaOyC0zDbw0EkENq42gC7Y1Mbt0bz8RzSoI/OHfnNhKP1Nr\n\
-x1aArebLa6yS/NIoTp75LSpSKMGALDRxaI1hXcECMsHFPCRoPPjzglSoHoiZZ0HH\n\
-C70dCHov8jkgwpg8ARAm4lYMSiffpRpgO04sURc6607xAyPFqbnY+6Gj0UoMTYQs\n\
-WkwciIJ7fX+pZTvpW4rgeWm8CeHyfi65r8as/hqhypf5XFfLGyfNZYIxIhzu1aW9\n\
-k7LTBDogAOorN+MDyFzbJgoGFwmG0VEAnRoCyWL/AQKBgQDWZEi4zReunMjRRzAi\n\
-DGZqdi1KD6NPgfDNTHqTAET8DDV4bGHlZbHHI+YHKX9h3r310WL5klkbb3eFSZeH\n\
-quzjauAoCsgXVxZaCxNCWFXLGvKSto8t3foRLm7Jik5cn2XGYC80W6wQIPIHB3St\n\
-q7qNOVQRH4D4MjCqn3nz5iJXKQKBgQDN7/T6mR/9eGtV34gOvnHcyY6iDh3OSy82\n\
-cNAyVTknpbASYVnNnY5HhSrBLQs+HIG6jAQA6gBJjUEmXDZ/hQVASJtKNaxqMfsN\n\
-NSBllAoge3QXWTue6huUSSiRJv0FOUsSW13sdiAwPUtEz0djE1msJexS6vIIqmJh\n\
-SMNr4dYVtQKBgQDOFtLNSuHkCXUFsC/12wOsfXOlyQiNCnUHdOgzXUPzIm1YGJ+2\n\
-m55ctwaNhfechjkHD0PcczFTLUCwkQCn+sgDCR73fv2/agjjf9gAo9e9CWd7XyCd\n\
-z89uKrt244vWf6efHaDi7OinDHR8C0+/DuCilyRX3XflnqGnsuvRaD1EmQKBgBaP\n\
-AYvt+CYg6ckXWmUbEYf5AEnaOAOgEsTo6LWKxl8EdFwfE+JFLw/Ak6VjlMayArf3\n\
-nHypJWzpL0jPcxzW6nNXQMOJS6C6ZuDUf/8Aj3dtbpMcMD7BMFI3DV2RIshOtV2G\n\
-aqx7aB1AqZ0ZA53jwb/sy41ttSOj3nD/soB/1Z69AoGALOn3YmInC8NM5fffIxHG\n\
-DUg/0uzEvLQB83wZJaieUY8R00236POC7lIQLqc95DZ54HeOYhQ5uRwJkY80RfB2\n\
-Ufdydug9NAhtGo1pPH25Rzz7yI6n6HUuDw1Dp+cVutR7RVgIox1iKNpPkfPWbdjC\n\
-5Fx6mE/RgmfBz1j32OXgBtg=\n\
------END PRIVATE KEY-----\n";
+// =====================================================================
+//  SSL CERTIFICATE NOTE:
+//  We set custom_certificate: None here, which means the android-auto
+//  crate will use its own built-in JVC Kenwood certificate (the real OEM
+//  cert signed by Google Automotive Link CA).
+//
+//  The UnsupportedCertVersion panic was caused because rustls-webpki
+//  does NOT support the X.509 v1 format used by that 2014 cert.
+//  This is FIXED by the [patch.crates-io] in Cargo.toml which replaces
+//  rustls-webpki with uglyoldbob's fork that supports v1 certs.
+//
+//  DO NOT use a custom_certificate unless you have a cert signed by the
+//  real Google Automotive Link CA root (which is not publicly available).
+// =====================================================================
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TouchEvent {
@@ -93,13 +76,27 @@ struct AppHeadunit {
 #[async_trait::async_trait]
 impl AndroidAutoVideoChannelTrait for AppHeadunit {
     async fn receive_video(&self, data: Vec<u8>, _timestamp: Option<u64>) {
-        // Zero-copy broadcast to all Web UI Clients
+        debug!("[VIDEO] Received H.264 NAL unit: {} bytes", data.len());
         let _ = self.video_tx.send(bytes::Bytes::from(data));
     }
-    async fn setup_video(&self) -> Result<(), ()> { Ok(()) }
-    async fn teardown_video(&self) {}
-    async fn wait_for_focus(&self) {}
-    async fn set_focus(&self, _focus: bool) {}
+
+    async fn setup_video(&self) -> Result<(), ()> {
+        info!("[VIDEO] setup_video called - accepting video channel");
+        Ok(())
+    }
+
+    async fn teardown_video(&self) {
+        info!("[VIDEO] teardown_video called");
+    }
+
+    async fn wait_for_focus(&self) {
+        info!("[VIDEO] wait_for_focus called");
+    }
+
+    async fn set_focus(&self, focus: bool) {
+        info!("[VIDEO] set_focus: {}", focus);
+    }
+
     fn retrieve_video_configuration(&self) -> &VideoConfiguration {
         &self.config
     }
@@ -107,20 +104,44 @@ impl AndroidAutoVideoChannelTrait for AppHeadunit {
 
 #[async_trait::async_trait]
 impl AndroidAutoAudioOutputTrait for AppHeadunit {
-    async fn open_output_channel(&self, _t: android_auto::AudioChannelType) -> Result<(), ()> { Ok(()) }
-    async fn close_output_channel(&self, _t: android_auto::AudioChannelType) -> Result<(), ()> { Ok(()) }
-    async fn receive_output_audio(&self, _t: android_auto::AudioChannelType, _data: Vec<u8>) {}
-    async fn start_output_audio(&self, _t: android_auto::AudioChannelType) {}
-    async fn stop_output_audio(&self, _t: android_auto::AudioChannelType) {}
+    async fn open_output_channel(&self, t: android_auto::AudioChannelType) -> Result<(), ()> {
+        info!("[AUDIO-OUT] open_output_channel: {:?}", t);
+        Ok(())
+    }
+    async fn close_output_channel(&self, t: android_auto::AudioChannelType) -> Result<(), ()> {
+        info!("[AUDIO-OUT] close_output_channel: {:?}", t);
+        Ok(())
+    }
+    async fn receive_output_audio(&self, _t: android_auto::AudioChannelType, data: Vec<u8>) {
+        debug!("[AUDIO-OUT] received {} bytes of audio (discarding - no audio hardware)", data.len());
+    }
+    async fn start_output_audio(&self, t: android_auto::AudioChannelType) {
+        info!("[AUDIO-OUT] start_output_audio: {:?}", t);
+    }
+    async fn stop_output_audio(&self, t: android_auto::AudioChannelType) {
+        info!("[AUDIO-OUT] stop_output_audio: {:?}", t);
+    }
 }
 
 #[async_trait::async_trait]
 impl AndroidAutoAudioInputTrait for AppHeadunit {
-    async fn open_input_channel(&self) -> Result<(), ()> { Ok(()) }
-    async fn close_input_channel(&self) -> Result<(), ()> { Ok(()) }
-    async fn start_input_audio(&self) {}
-    async fn audio_input_ack(&self, _chan: u8, _ack: android_auto::Wifi::AVMediaAckIndication) {}
-    async fn stop_input_audio(&self) {}
+    async fn open_input_channel(&self) -> Result<(), ()> {
+        info!("[AUDIO-IN] open_input_channel");
+        Ok(())
+    }
+    async fn close_input_channel(&self) -> Result<(), ()> {
+        info!("[AUDIO-IN] close_input_channel");
+        Ok(())
+    }
+    async fn start_input_audio(&self) {
+        info!("[AUDIO-IN] start_input_audio");
+    }
+    async fn audio_input_ack(&self, chan: u8, _ack: android_auto::Wifi::AVMediaAckIndication) {
+        debug!("[AUDIO-IN] audio_input_ack chan={}", chan);
+    }
+    async fn stop_input_audio(&self) {
+        info!("[AUDIO-IN] stop_input_audio");
+    }
 }
 
 #[async_trait::async_trait]
@@ -128,26 +149,33 @@ impl AndroidAutoSensorTrait for AppHeadunit {
     fn get_supported_sensors(&self) -> &android_auto::SensorInformation {
         &self.sensors
     }
+
     async fn start_sensor(&self, stype: android_auto::Wifi::sensor_type::Enum) -> Result<(), ()> {
+        info!("[SENSOR] start_sensor: {:?}", stype);
         if self.sensors.sensors.contains(&stype) {
             let mut m3 = android_auto::Wifi::SensorEventIndication::new();
             match stype {
                 android_auto::Wifi::sensor_type::Enum::DRIVING_STATUS => {
+                    info!("[SENSOR] -> Reporting DRIVING_STATUS: UNRESTRICTED");
                     let mut ds = android_auto::Wifi::DrivingStatus::new();
                     ds.set_status(android_auto::Wifi::DrivingStatusEnum::UNRESTRICTED as i32);
                     m3.driving_status.push(ds);
                 }
                 android_auto::Wifi::sensor_type::Enum::NIGHT_DATA => {
+                    info!("[SENSOR] -> Reporting NIGHT_DATA: Day mode (is_night=false)");
                     let mut ds = android_auto::Wifi::NightMode::new();
                     ds.set_is_night(false);
                     m3.night_mode.push(ds);
                 }
-                _ => {}
+                _ => {
+                    warn!("[SENSOR] Unhandled sensor type: {:?}", stype);
+                }
             }
             let m = android_auto::AndroidAutoMessage::Sensor(m3);
             let _ = self.android_send.send(m.sendable()).await;
             Ok(())
         } else {
+            warn!("[SENSOR] Sensor {:?} not in supported list, rejecting", stype);
             Err(())
         }
     }
@@ -155,7 +183,10 @@ impl AndroidAutoSensorTrait for AppHeadunit {
 
 #[async_trait::async_trait]
 impl AndroidAutoInputChannelTrait for AppHeadunit {
-    async fn binding_request(&self, _code: u32) -> Result<(), ()> { Ok(()) }
+    async fn binding_request(&self, code: u32) -> Result<(), ()> {
+        info!("[INPUT] binding_request: keycode={}", code);
+        Ok(())
+    }
     fn retrieve_input_configuration(&self) -> &android_auto::InputConfiguration {
         &self.input_config
     }
@@ -167,11 +198,14 @@ impl AndroidAutoWiredTrait for AppHeadunit {}
 #[async_trait::async_trait]
 impl AndroidAutoMainTrait for AppHeadunit {
     async fn connect(&self) {
-        info!("--- ANDROID AUTO USB CONNECTED ---");
+        info!("╔══════════════════════════════════════════╗");
+        info!("║   ANDROID AUTO USB SESSION ESTABLISHED!  ║");
+        info!("║   Spoofing: {} {}             ║", HU_MANUFACTURER, HU_MODEL);
+        info!("╚══════════════════════════════════════════╝");
     }
 
     async fn disconnect(&self) {
-        info!("--- ANDROID AUTO DISCONNECTED ---");
+        warn!("══ ANDROID AUTO SESSION DISCONNECTED ══");
     }
 
     async fn get_receiver(
@@ -182,30 +216,46 @@ impl AndroidAutoMainTrait for AppHeadunit {
     }
 
     fn supports_wired(&self) -> Option<Arc<dyn AndroidAutoWiredTrait>> {
+        info!("[WIRED] supports_wired() called -> returning wired support");
         Some(Arc::new(self.clone()))
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
-    info!("Starting Android Auto Web UI Host on 0.0.0.0:8080");
+    // Init logging with env filter - use RUST_LOG=debug for full trace
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    info!("══════════════════════════════════════════════════════");
+    info!("  Android Auto WebUI Headunit Bridge - Starting");
+    info!("  Spoofing: {} {} ({})", HU_MANUFACTURER, HU_MODEL, HU_CAR_YEAR);
+    info!("  WebUI:    http://0.0.0.0:8080");
+    info!("  TIP: Run with RUST_LOG=debug for more detail");
+    info!("══════════════════════════════════════════════════════");
 
     let (video_tx, _) = broadcast::channel(1024);
     let (touch_tx, mut touch_rx) = mpsc::channel::<TouchEvent>(128);
+    let (android_send, android_recv) =
+        mpsc::channel::<android_auto::SendableAndroidAutoMessage>(50);
 
-    let (android_send, android_recv) = mpsc::channel::<android_auto::SendableAndroidAutoMessage>(50);
-    
-    // 1. Thread for handling WS -> Android Auto Touch Translation
+    // ── Touch Event Translator: WebSocket JSON → Android Auto protobuf ──
     let android_send2 = android_send.clone();
     tokio::spawn(async move {
+        info!("[TOUCH] Touch event translator started");
         while let Some(touch) = touch_rx.recv().await {
+            debug!("[TOUCH] Injecting touch: action={} x={} y={}", touch.action, touch.x, touch.y);
             let mut i_event = android_auto::Wifi::InputEventIndication::new();
             let timestamp: u64 = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_micros() as u64;
             i_event.set_timestamp(timestamp);
+
             let mut te = android_auto::Wifi::TouchEvent::new();
             let mut tl = android_auto::Wifi::TouchLocation::new();
             tl.set_x(touch.x);
@@ -213,22 +263,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tl.set_pointer_id(0);
             te.touch_location = vec![tl];
 
-            if touch.action == 0 {
-                te.set_touch_action(android_auto::Wifi::touch_action::Enum::POINTER_DOWN);
-            } else if touch.action == 1 {
-                te.set_touch_action(android_auto::Wifi::touch_action::Enum::POINTER_UP);
-            } else {
-                te.set_touch_action(android_auto::Wifi::touch_action::Enum::DRAG);
-            }
+            let action = match touch.action {
+                0 => android_auto::Wifi::touch_action::Enum::POINTER_DOWN,
+                1 => android_auto::Wifi::touch_action::Enum::POINTER_UP,
+                _ => android_auto::Wifi::touch_action::Enum::DRAG,
+            };
+            te.set_touch_action(action);
 
             i_event.touch_event = android_auto::protobuf::MessageField::some(te);
             let e = android_auto::AndroidAutoMessage::Input(i_event);
             if let Err(e) = android_send2.send(e.sendable()).await {
-                 error!("Failed to inject touch event into AA: {:?}", e);
+                error!("[TOUCH] Failed to inject touch into AA channel: {:?}", e);
             }
         }
     });
 
+    // ── Sensor Configuration ──
     let mut sensors = HashSet::new();
     sensors.insert(android_auto::Wifi::sensor_type::Enum::DRIVING_STATUS);
     sensors.insert(android_auto::Wifi::sensor_type::Enum::NIGHT_DATA);
@@ -249,38 +299,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
-    // 2. Start Android Auto Logic via MainTrait Loop
+    // ── Android Auto Protocol Session ──
     tokio::task::spawn(async move {
+        info!("[AA] Building Android Auto configuration...");
+        info!("[AA] Device: {} {} ({})", HU_MANUFACTURER, HU_MODEL, HU_CAR_YEAR);
+        info!("[AA] SW Version: {} Build: {}", HU_SW_VERSION, HU_SW_BUILD);
+        info!("[AA] Certificate: Using built-in JVC/crate cert (patched webpki for v1 support)");
+
         let config = android_auto::AndroidAutoConfiguration {
             unit: android_auto::HeadUnitInfo {
-                name: "Example".to_string(),
-                car_model: "Example".to_string(),
-                car_year: "1943".to_string(),
-                car_serial: "42".to_string(),
-                left_hand: false,
-                head_manufacturer: "Example".to_string(),
-                head_model: "Example".to_string(),
-                sw_build: "37".to_string(),
-                sw_version: "1.2.3".to_string(),
-                native_media: true,
-                hide_clock: Some(true),
+                name:              HU_NAME.to_string(),
+                car_model:         HU_CAR_MODEL.to_string(),
+                car_year:          HU_CAR_YEAR.to_string(),
+                car_serial:        HU_CAR_SERIAL.to_string(),
+                left_hand:         false,
+                head_manufacturer: HU_MANUFACTURER.to_string(),
+                head_model:        HU_MODEL.to_string(),
+                sw_build:          HU_SW_BUILD.to_string(),
+                sw_version:        HU_SW_VERSION.to_string(),
+                native_media:      false,
+                hide_clock:        Some(true),
             },
-            custom_certificate: Some((
-                CERT_PEM.as_bytes().to_vec(),
-                KEY_PEM.as_bytes().to_vec()
-            )),
+            // Use the crate's built-in cert (JVC Kenwood, signed by Google Automotive Link).
+            // The UnsupportedCertVersion issue is fixed by the [patch.crates-io] in Cargo.toml
+            // which replaces rustls-webpki with a fork supporting X.509 v1 certs.
+            custom_certificate: None,
         };
+
         let setup = android_auto::setup();
 
-        let mut joinset = tokio::task::JoinSet::new();
-        info!("Wait for USB Phone connection...");
-        let b = Box::new(headunit);
-        let _ = b.run(config, &mut joinset, &setup).await;
-        joinset.join_all().await;
-        info!("Android auto session task ended.");
+        loop {
+            info!("[AA] ══ Waiting for USB phone connection... ══");
+            info!("[AA]    (plug in your Android phone via USB now)");
+
+            let b = Box::new(headunit.clone());
+            let mut joinset = tokio::task::JoinSet::new();
+            match b.run(config.clone(), &mut joinset, &setup).await {
+                Ok(_) => {
+                    info!("[AA] Session ended normally.");
+                }
+                Err(e) => {
+                    error!("[AA] Session error: {}", e);
+                    error!("[AA] ══ If you see TLS/SSL errors, ensure Cargo.toml has the");
+                    error!("[AA]    [patch.crates-io] rustls-webpki entry. ══");
+                }
+            }
+            joinset.join_all().await;
+            info!("[AA] Restarting session loop in 2 seconds...");
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
     });
 
-    // 3. Web UI Server
+    // ── Web UI Server ──
     let state = Arc::new(AppState { video_tx, touch_tx });
     let app = Router::new()
         .nest_service("/", ServeDir::new("public"))
@@ -288,6 +358,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    info!("[WEB] Serving UI at http://{}", addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
@@ -295,28 +366,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    info!("[WS] New WebSocket client connecting...");
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+    info!("[WS] Client connected");
     let (mut sender, mut receiver) = socket.split();
     let mut video_rx = state.video_tx.subscribe();
 
+    // Video send loop: broadcast raw H.264 NAL units to browser
     let mut send_task = tokio::spawn(async move {
-        while let Ok(frame) = video_rx.recv().await {
-            if sender.send(WsMessage::Binary(frame.to_vec())).await.is_err() {
-                break;
+        loop {
+            match video_rx.recv().await {
+                Ok(frame) => {
+                    if sender.send(WsMessage::Binary(frame.to_vec())).await.is_err() {
+                        info!("[WS] Client disconnected (send failed)");
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!("[WS] Video receiver lagged by {} frames - browser too slow?", n);
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    info!("[WS] Video channel closed");
+                    break;
+                }
             }
         }
     });
 
+    // Touch receive loop: parse JSON touch events from browser
     let touch_tx = state.touch_tx.clone();
     let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(WsMessage::Text(msg))) = receiver.next().await {
-            if let Ok(touch_event) = serde_json::from_str::<TouchEvent>(&msg) {
-                if touch_tx.send(touch_event).await.is_err() {
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                WsMessage::Text(text) => {
+                    debug!("[WS] Received touch JSON: {}", text);
+                    match serde_json::from_str::<TouchEvent>(&text) {
+                        Ok(touch_event) => {
+                            if touch_tx.send(touch_event).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("[WS] Failed to parse touch event JSON: {}", e);
+                        }
+                    }
+                }
+                WsMessage::Close(_) => {
+                    info!("[WS] Client sent close frame");
                     break;
                 }
+                _ => {}
             }
         }
     });
@@ -325,4 +427,5 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         _ = (&mut send_task) => recv_task.abort(),
         _ = (&mut recv_task) => send_task.abort(),
     };
+    info!("[WS] Client disconnected");
 }

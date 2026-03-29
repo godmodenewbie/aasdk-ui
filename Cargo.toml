@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-android-auto = { version = "0.3.3", features = ["usb"] }
+android-auto = { version = "0.3.5", features = ["usb"] }
 tokio = { version = "1.37.0", features = ["full"] }
 axum = { version = "0.7.5", features = ["ws", "macros"] }
 futures = "0.3.30"
@@ -12,6 +12,16 @@ serde = { version = "1.0.198", features = ["derive"] }
 serde_json = "1.0.116"
 tower-http = { version = "0.5.2", features = ["fs", "cors"] }
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 bytes = "1.6.0"
-async-trait = "0.1.77"
+async-trait = "0.1.88"
+
+# =====================================================================
+# CRITICAL: This patch replaces the default rustls-webpki with a fork
+# that supports X.509 v1 certificates used by by the Android Auto
+# protocol (the default Google Automotive Link CA is a v1 cert from 2014).
+# Without this, rustls panics with UnsupportedCertVersion before the
+# TLS handshake can even begin. See: uglyoldbob/android-auto Cargo.toml
+# =====================================================================
+[patch.crates-io]
+rustls-webpki = { git = "https://github.com/uglyoldbob/webpki", branch = "main5" }
