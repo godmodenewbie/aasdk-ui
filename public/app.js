@@ -1,3 +1,42 @@
+// --- LOGIKA TAB UI MOBIL ---
+const btnHome = document.getElementById('btn-home');
+const btnAuto = document.getElementById('btn-auto');
+const btnLaunchAa = document.getElementById('btn-launch-aa');
+const homeDashboard = document.getElementById('home-dashboard');
+const aaDashboard = document.getElementById('aa-dashboard');
+const loader = document.getElementById('loader');
+
+function showHome() {
+    homeDashboard.classList.remove('hidden');
+    aaDashboard.classList.add('hidden');
+
+    btnHome.classList.replace('text-gray-500', 'text-[#81ecff]');
+    btnHome.querySelector('span').style.fontVariationSettings = "'FILL' 1";
+
+    btnAuto.classList.replace('text-[#81ecff]', 'text-gray-500');
+    btnAuto.querySelector('span').style.fontVariationSettings = "'FILL' 0";
+}
+
+function showAuto() {
+    homeDashboard.classList.add('hidden');
+    aaDashboard.classList.remove('hidden');
+
+    btnAuto.classList.replace('text-gray-500', 'text-[#81ecff]');
+    btnAuto.querySelector('span').style.fontVariationSettings = "'FILL' 1";
+
+    btnHome.classList.replace('text-[#81ecff]', 'text-gray-500');
+    btnHome.querySelector('span').style.fontVariationSettings = "'FILL' 0";
+}
+
+// Event Listener Tombol
+btnHome.addEventListener('click', showHome);
+btnAuto.addEventListener('click', showAuto);
+btnLaunchAa.addEventListener('click', showAuto); // Tombol besar di tengah layar
+
+// --- DI BAWAH SINI ADALAH KODE WEBSOCKET BROADWAY.JS LAMA KAMU ---
+// Catatan: Jika WebSocket menerima pesan bahwa stream video dimulai, 
+// pastikan kamu menyembunyikan loader dengan perintah: loader.style.display = 'none';
+
 document.addEventListener("DOMContentLoaded", () => {
     const loader = document.getElementById("loader");
 
@@ -6,8 +45,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const AA_HEIGHT = 720;
 
     // WebSocket message type prefix bytes (must match Rust constants)
-    const MSG_VIDEO  = 0x01;
-    const MSG_MEDIA  = 0x02;  // 48000 Hz, stereo, S16LE
+    const MSG_VIDEO = 0x01;
+    const MSG_MEDIA = 0x02;  // 48000 Hz, stereo, S16LE
     const MSG_SYSTEM = 0x03;  // 16000 Hz, mono,   S16LE
     const MSG_SPEECH = 0x04;  // 16000 Hz, mono,   S16LE
 
@@ -99,7 +138,7 @@ document.addEventListener("DOMContentLoaded", () => {
         timeRef.next += buffer.duration;
     }
 
-    const mediaTimeRef  = { next: 0 };
+    const mediaTimeRef = { next: 0 };
     const systemTimeRef = { next: 0 };
 
     // -----------------------------------------------------------------
@@ -179,7 +218,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 4. TOUCH COORDINATE MAPPING (CSS → Android Auto 1280×720)
     // -----------------------------------------------------------------
     const ACTION_DOWN = 0;
-    const ACTION_UP   = 1;
+    const ACTION_UP = 1;
     const ACTION_MOVE = 2;
 
     const sendTouch = (action, clientX, clientY) => {
@@ -187,13 +226,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!videoCanvas) return;
 
         const rect = videoCanvas.getBoundingClientRect();
-        const cssWidth  = rect.width;
+        const cssWidth = rect.width;
         const cssHeight = rect.height;
 
         const videoRatio = AA_WIDTH / AA_HEIGHT;
-        const cssRatio   = cssWidth / cssHeight;
+        const cssRatio = cssWidth / cssHeight;
 
-        let displayedWidth  = cssWidth;
+        let displayedWidth = cssWidth;
         let displayedHeight = cssHeight;
         let offsetX = 0;
         let offsetY = 0;
@@ -207,11 +246,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const relX = clientX - rect.left - offsetX;
-        const relY = clientY - rect.top  - offsetY;
+        const relY = clientY - rect.top - offsetY;
 
         if (relX < 0 || relX > displayedWidth || relY < 0 || relY > displayedHeight) return;
 
-        const mappedX = Math.max(0, Math.min(AA_WIDTH  - 1, Math.round((relX / displayedWidth)  * AA_WIDTH)));
+        const mappedX = Math.max(0, Math.min(AA_WIDTH - 1, Math.round((relX / displayedWidth) * AA_WIDTH)));
         const mappedY = Math.max(0, Math.min(AA_HEIGHT - 1, Math.round((relY / displayedHeight) * AA_HEIGHT)));
 
         ws.send(JSON.stringify({ action, x: mappedX, y: mappedY }));

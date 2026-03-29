@@ -1,30 +1,215 @@
 <!DOCTYPE html>
-<html lang="en">
+<html class="dark" lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rust Android Auto Web UI</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport" />
+    <title>The Obsidian Navigator - Android Auto</title>
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#81ecff",
+                        "primary-dim": "#00d4ec",
+                        "surface-container-low": "#131314",
+                        "surface-container-high": "#201f21",
+                        "surface-container-highest": "#262627",
+                        "on-surface-variant": "#adaaab",
+                        "outline-variant": "#484849",
+                        "background": "#0e0e0f",
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Manrope"],
+                        "label": ["Manrope"]
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #0e0e0f;
+            color: #ffffff;
+            margin: 0;
+            overflow: hidden;
+            /* Cegah scrollbar */
+            height: 100vh;
+            width: 100vw;
+            font-family: 'Manrope', sans-serif;
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .glass-card {
+            background: rgba(38, 38, 39, 0.6);
+            backdrop-filter: blur(20px);
+        }
+
+        /* Style untuk loader bawaanmu yang di-modern-kan */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #81ecff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Memaksa canvas Broadway.js menyesuaikan layar tanpa merusak rasio */
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
+        }
+    </style>
 </head>
-<body>
-    <div id="loader" class="loader-overlay">
-        <div class="spinner"></div>
-        <p>Waiting for Android Auto Session...</p>
-    </div>
 
-    <!-- Container for video stream -->
-    <div id="container">
-        <!-- Target Canvas where Broadway.js replaces and injects its own canvas -->
-        <canvas id="videoCanvas"></canvas>
-    </div>
+<body class="flex overflow-hidden bg-background">
+    <aside
+        class="h-screen w-20 fixed left-0 top-0 border-r border-outline-variant/10 bg-[#0e0e0f] flex flex-col items-center py-8 z-50">
+        <div class="text-[#81ecff] font-black text-2xl tracking-widest mb-12 font-['Space_Grotesk']">
+            H
+        </div>
+        <nav class="flex flex-col gap-10 w-full px-2">
+            <button id="btn-home"
+                class="w-full text-[#81ecff] scale-110 transition-transform flex flex-col items-center gap-1 group">
+                <span class="material-symbols-outlined text-3xl" style="font-variation-settings: 'FILL' 1;">home</span>
+                <span class="text-[10px] font-bold tracking-tighter uppercase opacity-80">Home</span>
+            </button>
 
-    <!-- Make sure to download broadway.js and include these scripts -->
-    <!-- e.g. from https://github.com/mbebenita/Broadway -->
+            <button id="btn-auto"
+                class="w-full text-gray-500 opacity-60 hover:text-[#81ecff] hover:opacity-100 transition-all flex flex-col items-center gap-1">
+                <span class="material-symbols-outlined text-3xl">android</span>
+                <span class="text-[10px] font-bold tracking-tighter uppercase">Auto</span>
+            </button>
+
+            <button
+                class="w-full text-gray-500 opacity-60 hover:text-[#81ecff] hover:opacity-100 transition-all flex flex-col items-center gap-1">
+                <span class="material-symbols-outlined text-3xl">music_note</span>
+                <span class="text-[10px] font-bold tracking-tighter uppercase">Music</span>
+            </button>
+
+            <button
+                class="w-full text-gray-500 opacity-60 hover:text-[#81ecff] hover:opacity-100 transition-all flex flex-col items-center gap-1">
+                <span class="material-symbols-outlined text-3xl">settings</span>
+                <span class="text-[10px] font-bold tracking-tighter uppercase">Setup</span>
+            </button>
+        </nav>
+        <div class="mt-auto">
+            <button id="btn-theme" class="text-gray-500 hover:text-white transition-colors">
+                <span class="material-symbols-outlined text-3xl">light_mode</span>
+            </button>
+        </div>
+    </aside>
+
+    <main class="ml-20 flex-1 relative flex flex-col h-screen overflow-hidden">
+
+        <header
+            class="absolute top-0 right-0 left-0 h-16 flex justify-between items-center px-10 w-full z-40 bg-gradient-to-b from-background to-transparent pointer-events-none">
+            <div class="flex items-center gap-4">
+                <span class="text-on-surface-variant font-medium font-body text-sm tracking-wide">The Obsidian
+                    Navigator</span>
+            </div>
+            <div class="flex items-center gap-8 pointer-events-auto">
+                <div class="flex items-center gap-6 font-headline">
+                    <div class="flex flex-col items-end">
+                        <span class="text-2xl font-bold leading-none">22:45</span>
+                    </div>
+                    <div class="h-8 w-[1px] bg-outline-variant/30"></div>
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-primary text-xl">partly_cloudy_day</span>
+                        <span class="text-xl font-bold">18°C</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="home-dashboard"
+            class="mt-16 p-10 h-[calc(100vh-64px)] grid grid-cols-12 grid-rows-6 gap-6 transition-opacity duration-300">
+            <section
+                class="col-span-7 row-span-4 bg-surface-container-low rounded-[2rem] p-10 flex flex-col justify-between relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-tr from-primary/10 to-transparent pointer-events-none">
+                </div>
+                <div class="relative z-10 flex flex-col">
+                    <span
+                        class="text-on-surface-variant font-label text-sm uppercase tracking-[0.3em] font-bold mb-2">Current
+                        Velocity</span>
+                    <div class="flex items-baseline gap-4">
+                        <h1 class="font-headline text-[8rem] font-bold leading-none tracking-tighter text-white">0</h1>
+                        <span
+                            class="font-headline text-4xl text-primary font-light uppercase tracking-widest">km/h</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="col-span-5 row-span-4 flex flex-col gap-6">
+                <button id="btn-launch-aa"
+                    class="flex-1 bg-gradient-to-br from-[#006976] to-[#003840] text-white rounded-[2rem] p-8 flex flex-col items-center justify-center gap-6 hover:scale-[0.98] transition-all border border-primary/20 shadow-lg">
+                    <div class="w-24 h-24 rounded-full bg-black/30 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-[4rem] text-primary">android</span>
+                    </div>
+                    <div class="text-center">
+                        <h2 class="font-headline text-2xl font-bold tracking-tight">Launch Android Auto</h2>
+                        <p class="font-body text-sm opacity-70 mt-2 font-medium">Connect maps & media</p>
+                    </div>
+                </button>
+            </section>
+
+            <section
+                class="col-span-12 row-span-2 glass-card rounded-[2rem] p-8 flex items-center gap-8 border border-outline-variant/10">
+                <div class="flex-1">
+                    <span class="text-primary text-xs font-bold uppercase tracking-[0.2em] mb-1 block">Ready to
+                        connect</span>
+                    <h3 class="text-2xl font-bold">Waiting for media...</h3>
+                </div>
+            </section>
+        </div>
+
+        <div id="aa-dashboard"
+            class="hidden absolute inset-0 pt-16 h-full w-full bg-black flex items-center justify-center">
+
+            <div id="loader" class="absolute z-10 flex flex-col items-center justify-center text-center">
+                <div class="spinner"></div>
+                <p class="text-primary font-headline tracking-widest uppercase text-sm font-bold">Waiting for Android
+                    Auto Session...</p>
+            </div>
+
+            <div id="container" class="w-full h-full relative z-0">
+                <canvas id="videoCanvas"></canvas>
+            </div>
+
+        </div>
+    </main>
+
     <script src="YUVCanvas.js"></script>
     <script src="Decoder.js"></script>
     <script src="Player.js"></script>
-    
     <script src="app.js"></script>
 </body>
+
 </html>
