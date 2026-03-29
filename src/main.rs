@@ -112,7 +112,6 @@ impl AndroidAutoInputChannelTrait for AppHeadunit {
     }
 }
 
-#[cfg(feature = "usb")]
 #[async_trait::async_trait]
 impl AndroidAutoWiredTrait for AppHeadunit {}
 
@@ -133,7 +132,6 @@ impl AndroidAutoMainTrait for AppHeadunit {
         inner.take()
     }
 
-    #[cfg(feature = "usb")]
     fn supports_wired(&self) -> Option<Arc<dyn AndroidAutoWiredTrait>> {
         Some(Arc::new(self.clone()))
     }
@@ -145,9 +143,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Android Auto Web UI Host on 0.0.0.0:8080");
 
     let (video_tx, _) = broadcast::channel(1024);
-    let (touch_tx, mut touch_rx) = mpsc::channel(128);
+    let (touch_tx, mut touch_rx) = mpsc::channel::<TouchEvent>(128);
 
-    let (android_send, android_recv) = mpsc::channel(50);
+    let (android_send, android_recv) = mpsc::channel::<android_auto::SendableAndroidAutoMessage>(50);
     
     // 1. Thread for handling WS -> Android Auto Touch Translation
     let android_send2 = android_send.clone();
@@ -205,15 +203,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Start Android Auto Logic via MainTrait Loop
     tokio::task::spawn(async move {
         let config = android_auto::AndroidAutoConfiguration {
-            make: "Debian".to_string(),
-            model: "VM Headunit".to_string(),
-            year: "2024".to_string(),
+            unit: android_auto::HeadUnitInfo {
+                name: "Debian".to_string(),
+                car_model: "VM Headunit".to_string(),
+                car_year: "2024".to_string(),
+                car_serial: "AASDK-1".to_string(),
+                left_hand: true,
+                head_manufacturer: "Linux".to_string(),
+                head_model: "AASDK-UI".to_string(),
+                sw_build: "1.0".to_string(),
+                sw_version: "1.0".to_string(),
+                native_media: false,
+                hide_clock: None,
+            },
+            custom_certificate: None,
         };
-        let setup = android_auto::AndroidAutoSetup {
-            id: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            display: "Headunit Display".to_string(),
-            setup: Default::default(),
-        };
+        let setup = android_auto::setup();
 
         let mut joinset = tokio::task::JoinSet::new();
         info!("Wait for USB Phone connection...");
