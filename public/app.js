@@ -5,6 +5,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const AA_WIDTH = 1280;
     const AA_HEIGHT = 720;
 
+    // WebSocket message type prefix bytes (must match Rust constants)
+    const MSG_VIDEO  = 0x01;
+    const MSG_MEDIA  = 0x02;  // 48000 Hz, stereo, S16LE
+    const MSG_SYSTEM = 0x03;  // 16000 Hz, mono,   S16LE
+    const MSG_SPEECH = 0x04;  // 16000 Hz, mono,   S16LE
+
     // -----------------------------------------------------------------
     // 1. BROADWAY H.264 NAL DECODER SETUP
     // -----------------------------------------------------------------
@@ -14,13 +20,12 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
         player = new Player({
             useWorker: true,
-            webgl: "auto",   // use WebGL if available, fallback to 2D
+            webgl: "auto",
             size: { width: AA_WIDTH, height: AA_HEIGHT }
         });
 
-        // Broadway creates its own canvas — insert it into the container
         const container = document.getElementById("container");
-        container.innerHTML = "";           // remove placeholder canvas
+        container.innerHTML = "";
         container.appendChild(player.canvas);
 
         videoCanvas = player.canvas;
@@ -29,7 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
         videoCanvas.style.height = "100%";
         videoCanvas.style.display = "block";
         videoCanvas.style.objectFit = "contain";
-        videoCanvas.style.touchAction = "none"; // prevent scroll/zoom on touch
+        videoCanvas.style.touchAction = "none";
 
         console.log("[AA] Broadway.js player initialized OK");
     } catch (e) {
@@ -37,7 +42,68 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // -----------------------------------------------------------------
-    // 2. WEBSOCKET CONNECTION + AUTO-RECONNECT
+    // 2. WEB AUDIO API SETUP (PCM Playback)
+    // -----------------------------------------------------------------
+    let audioCtx = null;
+    let nextMediaTime = 0;   // next scheduled play time for media audio
+    let nextSystemTime = 0;  // next scheduled play time for system/speech audio
+
+    function getAudioCtx() {
+        // AudioContext requires a user gesture to start — we create it lazily
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            console.log("[AUDIO] AudioContext created, sample rate:", audioCtx.sampleRate);
+        }
+        // Resume if suspended (browser autoplay policy)
+        if (audioCtx.state === "suspended") {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+
+    /**
+     * Play raw S16LE PCM data via Web Audio API with gapless scheduling.
+     * @param {Uint8Array} rawBytes  - raw PCM bytes (S16LE, little-endian)
+     * @param {number}     sampleRate - 48000 for media, 16000 for system/speech
+     * @param {number}     numChannels - 2 for media (stereo), 1 for system (mono)
+     * @param {Object}     timeRef    - object with { next: number } for scheduling
+     */
+    function playPCM(rawBytes, sampleRate, numChannels, timeRef) {
+        const ctx = getAudioCtx();
+        const numSamples = (rawBytes.byteLength / 2) / numChannels;
+        if (numSamples < 1) return;
+
+        const buffer = ctx.createBuffer(numChannels, numSamples, sampleRate);
+        const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
+
+        // Convert interleaved S16LE → Float32 per channel
+        for (let ch = 0; ch < numChannels; ch++) {
+            const channelData = buffer.getChannelData(ch);
+            for (let i = 0; i < numSamples; i++) {
+                const byteOffset = (i * numChannels + ch) * 2;
+                const sample = view.getInt16(byteOffset, /*littleEndian=*/true);
+                channelData[i] = sample / 32768.0;
+            }
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+
+        // Schedule gaplessly: if behind current time, catch up with small buffer
+        const now = ctx.currentTime;
+        if (timeRef.next < now + 0.02) {
+            timeRef.next = now + 0.05; // 50ms initial buffer to avoid underruns
+        }
+        source.start(timeRef.next);
+        timeRef.next += buffer.duration;
+    }
+
+    const mediaTimeRef  = { next: 0 };
+    const systemTimeRef = { next: 0 };
+
+    // -----------------------------------------------------------------
+    // 3. WEBSOCKET CONNECTION + AUTO-RECONNECT
     // -----------------------------------------------------------------
     let ws = null;
     let firstFrameReceived = false;
@@ -49,36 +115,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
         console.log(`[WS] Connecting to ${wsUrl}...`);
         ws = new WebSocket(wsUrl);
-        ws.binaryType = "arraybuffer"; // critical — receive raw bytes without base64 overhead
+        ws.binaryType = "arraybuffer";
 
         ws.onopen = () => {
             console.log("[WS] Connected to Android Auto bridge");
-            loader.querySelector("p").innerText = "Android Auto Connected — Waiting for video...";
+            loader.querySelector("p").innerText = "Connected — Waiting for video...";
+            // Unlock AudioContext on first user interaction after WS open
+            document.addEventListener("pointerdown", getAudioCtx, { once: true });
         };
 
         ws.onmessage = (event) => {
             if (!(event.data instanceof ArrayBuffer)) return;
+            const bytes = new Uint8Array(event.data);
+            if (bytes.length < 2) return;
 
-            const data = new Uint8Array(event.data);
-            if (data.length === 0) return;
+            const msgType = bytes[0];
+            const payload = bytes.subarray(1);  // everything after the type byte
 
-            if (player) {
-                // Feed raw H.264 NAL unit directly to Broadway decoder
-                player.decode(data);
+            switch (msgType) {
+                case MSG_VIDEO:
+                    // H.264 NAL unit → Broadway decoder
+                    if (player) {
+                        player.decode(payload);
+                        if (!firstFrameReceived) {
+                            firstFrameReceived = true;
+                            loader.classList.add("hidden");
+                            console.log(`[VIDEO] First frame! (${payload.length} bytes)`);
+                        }
+                    }
+                    break;
 
-                if (!firstFrameReceived) {
-                    firstFrameReceived = true;
-                    loader.classList.add("hidden");
-                    console.log(`[VIDEO] First frame received! (${data.length} bytes)`);
-                }
-            } else {
-                console.warn("[VIDEO] Frame received but player not ready");
+                case MSG_MEDIA:
+                    // 48000 Hz stereo PCM → Web Audio
+                    playPCM(payload, 48000, 2, mediaTimeRef);
+                    break;
+
+                case MSG_SYSTEM:
+                case MSG_SPEECH:
+                    // 16000 Hz mono PCM → Web Audio (navigation prompts, voice assistant)
+                    playPCM(payload, 16000, 1, systemTimeRef);
+                    break;
+
+                default:
+                    console.warn(`[WS] Unknown message type: 0x${msgType.toString(16)}`);
             }
         };
 
-        ws.onerror = (err) => {
-            console.error("[WS] Error:", err);
-        };
+        ws.onerror = (err) => console.error("[WS] Error:", err);
 
         ws.onclose = (evt) => {
             console.warn(`[WS] Disconnected (code=${evt.code}). Reconnecting in 3s...`);
@@ -93,10 +176,10 @@ document.addEventListener("DOMContentLoaded", () => {
     connect();
 
     // -----------------------------------------------------------------
-    // 3. TOUCH COORDINATE MAPPING (CSS → Android Auto 1920×1080)
+    // 4. TOUCH COORDINATE MAPPING (CSS → Android Auto 1280×720)
     // -----------------------------------------------------------------
     const ACTION_DOWN = 0;
-    const ACTION_UP = 1;
+    const ACTION_UP   = 1;
     const ACTION_MOVE = 2;
 
     const sendTouch = (action, clientX, clientY) => {
@@ -104,44 +187,41 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!videoCanvas) return;
 
         const rect = videoCanvas.getBoundingClientRect();
-        const cssWidth = rect.width;
+        const cssWidth  = rect.width;
         const cssHeight = rect.height;
 
-        // Handle letterbox/pillarbox offsets so clicks map to actual video area
         const videoRatio = AA_WIDTH / AA_HEIGHT;
-        const cssRatio = cssWidth / cssHeight;
+        const cssRatio   = cssWidth / cssHeight;
 
-        let displayedWidth = cssWidth;
+        let displayedWidth  = cssWidth;
         let displayedHeight = cssHeight;
         let offsetX = 0;
         let offsetY = 0;
 
         if (cssRatio > videoRatio) {
-            // Pillarbox (black bars left/right)
             displayedWidth = cssHeight * videoRatio;
             offsetX = (cssWidth - displayedWidth) / 2;
         } else {
-            // Letterbox (black bars top/bottom)
             displayedHeight = cssWidth / videoRatio;
             offsetY = (cssHeight - displayedHeight) / 2;
         }
 
         const relX = clientX - rect.left - offsetX;
-        const relY = clientY - rect.top - offsetY;
+        const relY = clientY - rect.top  - offsetY;
 
-        // Ignore taps in black bar regions
         if (relX < 0 || relX > displayedWidth || relY < 0 || relY > displayedHeight) return;
 
-        const mappedX = Math.max(0, Math.min(AA_WIDTH - 1, Math.round((relX / displayedWidth) * AA_WIDTH)));
+        const mappedX = Math.max(0, Math.min(AA_WIDTH  - 1, Math.round((relX / displayedWidth)  * AA_WIDTH)));
         const mappedY = Math.max(0, Math.min(AA_HEIGHT - 1, Math.round((relY / displayedHeight) * AA_HEIGHT)));
 
         ws.send(JSON.stringify({ action, x: mappedX, y: mappedY }));
     };
 
     // -----------------------------------------------------------------
-    // 4. POINTER EVENTS (mouse + touch unified API)
+    // 5. POINTER EVENTS (mouse + touch unified)
     // -----------------------------------------------------------------
     document.addEventListener("pointerdown", (e) => {
+        getAudioCtx(); // unlock audio on first interaction
         if (!videoCanvas) return;
         videoCanvas.setPointerCapture(e.pointerId);
         sendTouch(ACTION_DOWN, e.clientX, e.clientY);

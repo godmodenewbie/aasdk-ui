@@ -58,14 +58,26 @@ pub struct TouchEvent {
     pub y: u32,
 }
 
+// Message type prefix bytes for the WebSocket binary protocol:
+// 0x01 = H.264 video NAL unit
+// 0x02 = Media audio  (48000 Hz, stereo,  S16LE)
+// 0x03 = System audio (16000 Hz, mono,    S16LE)
+// 0x04 = Speech audio (16000 Hz, mono,    S16LE)
+const MSG_VIDEO:  u8 = 0x01;
+const MSG_MEDIA:  u8 = 0x02;
+const MSG_SYSTEM: u8 = 0x03;
+const MSG_SPEECH: u8 = 0x04;
+
 struct AppState {
     video_tx: broadcast::Sender<bytes::Bytes>,
+    audio_tx: broadcast::Sender<bytes::Bytes>,
     touch_tx: mpsc::Sender<TouchEvent>,
 }
 
 #[derive(Clone)]
 struct AppHeadunit {
     video_tx: broadcast::Sender<bytes::Bytes>,
+    audio_tx: broadcast::Sender<bytes::Bytes>,
     // Shared sender updated each session — touch task writes here
     aa_msg_tx: Arc<Mutex<Option<mpsc::Sender<android_auto::SendableAndroidAutoMessage>>>>,
     android_recv: Arc<Mutex<Option<mpsc::Receiver<android_auto::SendableAndroidAutoMessage>>>>,
@@ -78,7 +90,11 @@ struct AppHeadunit {
 impl AndroidAutoVideoChannelTrait for AppHeadunit {
     async fn receive_video(&self, data: Vec<u8>, _timestamp: Option<u64>) {
         debug!("[VIDEO] Received H.264 NAL unit: {} bytes", data.len());
-        let _ = self.video_tx.send(bytes::Bytes::from(data));
+        // Prefix with MSG_VIDEO type byte
+        let mut payload = Vec::with_capacity(1 + data.len());
+        payload.push(MSG_VIDEO);
+        payload.extend_from_slice(&data);
+        let _ = self.video_tx.send(bytes::Bytes::from(payload));
     }
 
     async fn setup_video(&self) -> Result<(), ()> {
@@ -106,21 +122,34 @@ impl AndroidAutoVideoChannelTrait for AppHeadunit {
 #[async_trait::async_trait]
 impl AndroidAutoAudioOutputTrait for AppHeadunit {
     async fn open_output_channel(&self, t: android_auto::AudioChannelType) -> Result<(), ()> {
-        info!("[AUDIO-OUT] open_output_channel: {:?}", t);
+        info!("[AUDIO] open_output_channel: {:?}", t);
         Ok(())
     }
     async fn close_output_channel(&self, t: android_auto::AudioChannelType) -> Result<(), ()> {
-        info!("[AUDIO-OUT] close_output_channel: {:?}", t);
+        info!("[AUDIO] close_output_channel: {:?}", t);
         Ok(())
     }
-    async fn receive_output_audio(&self, _t: android_auto::AudioChannelType, data: Vec<u8>) {
-        debug!("[AUDIO-OUT] received {} bytes of audio (discarding - no audio hardware)", data.len());
+
+    async fn receive_output_audio(&self, t: android_auto::AudioChannelType, data: Vec<u8>) {
+        // Determine message type byte from channel type
+        let type_byte = match t {
+            android_auto::AudioChannelType::Media  => MSG_MEDIA,
+            android_auto::AudioChannelType::System => MSG_SYSTEM,
+            android_auto::AudioChannelType::Speech => MSG_SPEECH,
+        };
+        debug!("[AUDIO] {:?}: {} bytes of S16LE PCM", t, data.len());
+        // Prefix with type byte and broadcast to all WebSocket clients
+        let mut payload = Vec::with_capacity(1 + data.len());
+        payload.push(type_byte);
+        payload.extend_from_slice(&data);
+        let _ = self.audio_tx.send(bytes::Bytes::from(payload));
     }
+
     async fn start_output_audio(&self, t: android_auto::AudioChannelType) {
-        info!("[AUDIO-OUT] start_output_audio: {:?}", t);
+        info!("[AUDIO] start_output_audio: {:?}", t);
     }
     async fn stop_output_audio(&self, t: android_auto::AudioChannelType) {
-        info!("[AUDIO-OUT] stop_output_audio: {:?}", t);
+        info!("[AUDIO] stop_output_audio: {:?}", t);
     }
 }
 
@@ -242,7 +271,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  TIP: Run with RUST_LOG=debug for more detail");
     info!("══════════════════════════════════════════════════════");
 
-    let (video_tx, _) = broadcast::channel(1024);
+    let (video_tx, _) = broadcast::channel::<bytes::Bytes>(512);
+    let (audio_tx, _) = broadcast::channel::<bytes::Bytes>(256);
     let (touch_tx, mut touch_rx) = mpsc::channel::<TouchEvent>(128);
     // ── Shared AA message sender: updated each session so touch task always has valid sender ──
     // Arc<Mutex<Option<Sender>>> — None between sessions, Some(sender) during active session
@@ -309,6 +339,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Android Auto Protocol Session (with per-session channel recreation) ──
     let aa_msg_tx_session = aa_msg_tx.clone();
     let video_tx_loop = video_tx.clone(); // clone for use inside the spawned task
+    let audio_tx_loop = audio_tx.clone(); // clone for audio broadcast inside spawned task
     tokio::task::spawn(async move {
         info!("[AA] Building Android Auto configuration...");
         info!("[AA] Device: {} {} ({})", HU_MANUFACTURER, HU_MODEL, HU_CAR_YEAR);
@@ -347,6 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let headunit = AppHeadunit {
                 video_tx: video_tx_loop.clone(),
+                audio_tx: audio_tx_loop.clone(),
                 aa_msg_tx: aa_msg_tx_session.clone(),
                 android_recv: Arc::new(Mutex::new(Some(session_rx))),
                 config: base_config.clone(),
@@ -370,7 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // ── Web UI Server ──
-    let state = Arc::new(AppState { video_tx, touch_tx });
+    let state = Arc::new(AppState { video_tx, audio_tx, touch_tx });
     let app = Router::new()
         .nest_service("/", ServeDir::new("public"))
         .route("/ws", get(ws_handler))
@@ -394,22 +426,38 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
     let mut video_rx = state.video_tx.subscribe();
 
-    // Video send loop: broadcast raw H.264 NAL units to browser
+    // Send loop: merge video + audio into one WebSocket stream (prefixed binary messages)
+    let mut audio_rx = state.audio_tx.subscribe();
     let mut send_task = tokio::spawn(async move {
         loop {
-            match video_rx.recv().await {
-                Ok(frame) => {
-                    if sender.send(WsMessage::Binary(frame.to_vec())).await.is_err() {
-                        info!("[WS] Client disconnected (send failed)");
-                        break;
+            tokio::select! {
+                msg = video_rx.recv() => {
+                    match msg {
+                        Ok(data) => {
+                            if sender.send(WsMessage::Binary(data.to_vec())).await.is_err() {
+                                info!("[WS] Client disconnected (video send failed)");
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("[WS] Video lagged by {} frames", n);
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    warn!("[WS] Video receiver lagged by {} frames - browser too slow?", n);
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    info!("[WS] Video channel closed");
-                    break;
+                msg = audio_rx.recv() => {
+                    match msg {
+                        Ok(data) => {
+                            if sender.send(WsMessage::Binary(data.to_vec())).await.is_err() {
+                                info!("[WS] Client disconnected (audio send failed)");
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            warn!("[WS] Audio lagged by {} chunks", n);
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
                 }
             }
         }
