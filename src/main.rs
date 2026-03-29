@@ -19,6 +19,58 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 
+const CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIDmTCCAoGgAwIBAgIUAdS8BSFFo9bt6vh1hhWQ+MXXADcwDQYJKoZIhvcNAQEL\n\
+BQAwXDELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAkNBMQswCQYDVQQHDAJTRjEOMAwG\n\
+A1UECgwFQUFTREsxETAPBgNVBAsMCEhlYWR1bml0MRAwDgYDVQQDDAdBQVNES1VJ\n\
+MB4XDTI2MDMyOTExMDMyOVoXDTM2MDMyNjExMDMyOVowXDELMAkGA1UEBhMCVVMx\n\
+CzAJBgNVBAgMAkNBMQswCQYDVQQHDAJTRjEOMAwGA1UECgwFQUFTREsxETAPBgNV\n\
+BAsMCEhlYWR1bml0MRAwDgYDVQQDDAdBQVNES1VJMIIBIjANBgkqhkiG9w0BAQEF\n\
+AAOCAQ8AMIIBCgKCAQEAxm79xdHTvotuScdTYvTpwQB48EJMzOkybMP41NE3cQ2l\n\
+8Uj1i0zWIg+9/8E9NaEgVmgYKWTiRtD33rFgLpzRYfNHvteHKNbaYQMu3oHAGDXW\n\
+tDa7Uz9bBLdy5UmBU+asUJadNQwGF9Jcrf1cI1H+8VFZNxno7B8Cfv/8tEPJHcHk\n\
+DMrYLmSn4EXHxN7iVIVEpFoC28FNK5N4YTnEdU1aD/QikQNVtH+wnjMh/snLMP/3\n\
+c5F/NVEbY+efzc89e2QFrumGXl+8mz4cU/I1dq/nk5q1iKZKu8YsoaJbpUDi3g/V\n\
+2Md8Avv7b435ZckM8/WJakJ4MPqREfaHrwdz3xa/DQIDAQABo1MwUTAdBgNVHQ4E\n\
+FgQUsPYIIMh8XlwDP6pxzOaJUyqA6O8wHwYDVR0jBBgwFoAUsPYIIMh8XlwDP6px\n\
+zOaJUyqA6O8wDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAgR29\n\
+5I8lJwAzgIt8s+r4IMs8NPzMSveawIGVfxdbS80itg9JAUx0EPNChi6CqlH9dgwe\n\
+9G8J0SAZ3lNW4T9DwCSh1X28KPIIJDpY1+pvWeRv5IZS3rCkaiGU9GKbXJAAMDGU\n\
+ICCryNGmxKMlH8W1V7v3CuZNAEWJZBK8grVAXN+O4KxCbs44CRqT0QMTgaoF0iCv\n\
+H8UIWKO5kbZHamcfUwR290c5zLXCb8z23mdmNo65CkHpP8mSR6+4i7SYMk8RJs1Q\n\
+KnkpXf74ajrf4+FJwDlOvrXO0KmKTT/Z+5kPmTxAWnj/4X+rk87/WgoaoUPFR4BY\n\
+4lO850Hv5LVFFsYXJg==\n\
+-----END CERTIFICATE-----\n";
+
+const KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDGbv3F0dO+i25J\n\
+x1Ni9OnBAHjwQkzM6TJsw/jU0TdxDaXxSPWLTNYiD73/wT01oSBWaBgpZOJG0Pfe\n\
+sWAunNFh80e+14co1tphAy7egcAYNda0NrtTP1sEt3LlSYFT5qxQlp01DAYX0lyt\n\
+/VwjUf7xUVk3GejsHwJ+//y0Q8kdweQMytguZKfgRcfE3uJUhUSkWgLbwU0rk3hh\n\
+OcR1TVoP9CKRA1W0f7CeMyH+ycsw//dzkX81URtj55/Nzz17ZAWu6YZeX7ybPhxT\n\
+8jV2r+eTmrWIpkq7xiyholulQOLeD9XYx3wC+/tvjfllyQzz9YlqQngw+pER9oev\n\
+B3PfFr8NAgMBAAECggEAMTJU5A3q3a+zcwLCY4Mdji54DXcek+IQEKPApkDNqk+M\n\
+MAda60OsRksZW9aUvp5ZRlrt/JtIt255OcLHuh7CkbKPe9rzJVapU0qG/P71uXrl\n\
+pY35QQEw53k0+PBRqlPDLoK87KkzvIW42SE6zf33A2zb/duEYkAo7gQ46pdwvhnD\n\
+kS2D662V141IVc1+lfkQNu+JPLE+Chgv/lfre37XoxZglFsOSO8sSNmA0wYJ2Fdk\n\
+ugFf/6xCM2XgB+zzWlz+/0BEZhflctIW5dlNoTKd8H9XHZbci1BRiINexb0jINcM\n\
+YRt+sei36t3u00uLzKS015OZTX2k2fg8ec9JpIbMQQKBgQDltWO4nex4eLbWKEEr\n\
+csaWfy3XcSmn25p0NVxyv24rujLidCeRG9kn+/aMNEuMesGfIMwUgK7rFivh3HHa\n\
+iBSiRSEADkEwmccjGhGg4BbjEbbEF3BxabhEr3ZlYwywZGHER3/hJhg1EZLWHwES\n\
+37yVm8CHqcHmAo451Rshcbe7TQKBgQDdJTlcGhoXvtOMlPszn3Z+R6ZLxEv/7tcU\n\
+1xjdtiqBk5le2yLSv7WMm5NOCS/FyjzMxi3NGSRY4zByxbfhyRVtBzBW6iQPiJRp\n\
+y+V/GgTJjGAQQtyhjA15pOJqHYK6lHYrHttoJ7fW3qSkCfyKMSRE/pUlwMHr0U88\n\
+5smN3zOywQKBgF7XpOPN+JvJI5yKpFW/HvV2b0P7yjovNrdybMhH98IAMBBF6yxD\n\
+tkaHBsXeta675IPCM+DnPNF9pwKrVSrocrSJHFX8jLf3VjxNAChPPcPlRXPzRY7e\n\
+GqHpXFYCLnQKDj/PUaJxax9GMT1NMdFMJX4T/8tDsPY56eVA8uG9JSIlAoGBAIiI\n\
+iOdyPhXW/SlYedcfZrsEZYl1wi5bOXNmcbXA2HFzvUcxKEjRj7cl/kY5qcMF34/V\n\
+80UjdqtiaPETXToLOi08OP4QRP9KJcdD2YclezssbcrcXPdoTpGB2UAGxEWJj4OD\n\
+45Zknz4L675TZBW1zVzDiTXr0k5TxgYlvt7WpUaBAoGBAKKe++rU0lv05AJAGAwv\n\
+wti/VseHj2Zc7XIZAEz0/Sy2MvUQeYhb8CkGzxB1YWwWq4VbNrbzx878DGlD419/\n\
+42tMWuWynTaDHxGPbgv5Bf+5N07VfCa8sxyU3ARkHoNW3NMzhCz7X+UG9a7kTWuf\n\
+DuBhrgYjfQxDvlaIyELn55Ou\n\
+-----END PRIVATE KEY-----\n";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TouchEvent {
     pub action: u8,
@@ -216,7 +268,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 native_media: false,
                 hide_clock: None,
             },
-            custom_certificate: None,
+            custom_certificate: Some((
+                CERT_PEM.as_bytes().to_vec(),
+                KEY_PEM.as_bytes().to_vec()
+            )),
         };
         let setup = android_auto::setup();
 
