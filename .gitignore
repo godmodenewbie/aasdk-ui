@@ -1,0 +1,11 @@
+# Rust
+target/
+Cargo.lock
+
+# C++
+build/
+*.o
+*.so
+
+# Node/Web
+node_modules/
