@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rust Android Auto Web UI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="loader" class="loader-overlay">
+        <div class="spinner"></div>
+        <p>Waiting for Android Auto Session...</p>
+    </div>
+
+    <!-- Container for video stream -->
+    <div id="container">
+        <!-- Target Canvas where Broadway.js replaces and injects its own canvas -->
+        <canvas id="videoCanvas"></canvas>
+    </div>
+
+    <!-- Make sure to download broadway.js and include these scripts -->
+    <!-- e.g. from https://github.com/mbebenita/Broadway -->
+    <script src="YUVCanvas.js"></script>
+    <script src="Decoder.js"></script>
+    <script src="Player.js"></script>
+    
+    <script src="app.js"></script>
+</body>
+</html>
