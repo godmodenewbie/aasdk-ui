@@ -1,43 +1,58 @@
 // =================================================================
 // 1. LOGIKA TAB UI MOBIL & SIDEBAR NAVIGATION
-// (Tanpa DOMContentLoaded agar langsung dieksekusi browser!)
 // =================================================================
 const btnHome = document.getElementById('btn-home');
 const btnAuto = document.getElementById('btn-auto');
+const btnSetup = document.getElementById('btn-setup'); // Tombol Setup baru
 const btnLaunchAa = document.getElementById('btn-launch-aa');
 
 const homeDashboard = document.getElementById('home-dashboard');
 const aaDashboard = document.getElementById('aa-dashboard');
+const setupDashboard = document.getElementById('setup-dashboard'); // Layar Setup baru
 const loader = document.getElementById('loader');
 
-if (!btnHome || !btnAuto || !homeDashboard || !aaDashboard) {
-    console.error("[UI] Ada ID HTML yang hilang! Cek index.html kamu.");
+// Fungsi reset warna tombol sidebar
+function resetButtons() {
+    [btnHome, btnAuto, btnSetup].forEach(btn => {
+        if (btn) {
+            btn.classList.replace('text-[#81ecff]', 'text-gray-500');
+            if (btn.querySelector('span')) btn.querySelector('span').style.fontVariationSettings = "'FILL' 0";
+        }
+    });
+    // Sembunyikan semua layar
+    homeDashboard.classList.add('hidden');
+    aaDashboard.classList.add('hidden');
+    if (setupDashboard) setupDashboard.classList.add('hidden');
+}
+
+// Fungsi Aktifkan Tombol
+function activateButton(btn) {
+    if (!btn) return;
+    btn.classList.replace('text-gray-500', 'text-[#81ecff]');
+    if (btn.querySelector('span')) btn.querySelector('span').style.fontVariationSettings = "'FILL' 1";
 }
 
 function showHome() {
+    resetButtons();
+    activateButton(btnHome);
     homeDashboard.classList.remove('hidden');
-    aaDashboard.classList.add('hidden');
-
-    btnHome.classList.replace('text-gray-500', 'text-[#81ecff]');
-    if (btnHome.querySelector('span')) btnHome.querySelector('span').style.fontVariationSettings = "'FILL' 1";
-
-    btnAuto.classList.replace('text-[#81ecff]', 'text-gray-500');
-    if (btnAuto.querySelector('span')) btnAuto.querySelector('span').style.fontVariationSettings = "'FILL' 0";
 }
 
 function showAuto() {
-    homeDashboard.classList.add('hidden');
+    resetButtons();
+    activateButton(btnAuto);
     aaDashboard.classList.remove('hidden');
+}
 
-    btnAuto.classList.replace('text-gray-500', 'text-[#81ecff]');
-    if (btnAuto.querySelector('span')) btnAuto.querySelector('span').style.fontVariationSettings = "'FILL' 1";
-
-    btnHome.classList.replace('text-[#81ecff]', 'text-gray-500');
-    if (btnHome.querySelector('span')) btnHome.querySelector('span').style.fontVariationSettings = "'FILL' 0";
+function showSetup() {
+    resetButtons();
+    activateButton(btnSetup);
+    if (setupDashboard) setupDashboard.classList.remove('hidden');
 }
 
 if (btnHome) btnHome.addEventListener('click', showHome);
 if (btnAuto) btnAuto.addEventListener('click', showAuto);
+if (btnSetup) btnSetup.addEventListener('click', showSetup);
 if (btnLaunchAa) btnLaunchAa.addEventListener('click', showAuto);
 
 
@@ -268,3 +283,101 @@ if (container) {
 
     container.addEventListener("contextmenu", (e) => e.preventDefault());
 }
+
+// =================================================================
+// 6. CLOCK & WEATHER SYSTEM (OPEN-METEO API)
+// =================================================================
+const elTime = document.getElementById('top-time');
+const elDate = document.getElementById('top-date');
+const elWeatherIcon = document.getElementById('top-weather-icon');
+const elWeatherTemp = document.getElementById('top-weather-temp');
+
+const inputCity = document.getElementById('input-city');
+const btnSaveCity = document.getElementById('btn-save-city');
+const setupMsg = document.getElementById('setup-msg');
+
+// Update Jam setiap detik
+function startClock() {
+    setInterval(() => {
+        const now = new Date();
+        // Format Waktu (22:45)
+        if (elTime) elTime.innerText = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        // Format Tanggal (Monday, Oct 24)
+        if (elDate) elDate.innerText = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    }, 1000);
+}
+
+// Konversi Kode Cuaca WMO ke Ikon Material Google
+function getWeatherIcon(code) {
+    if (code === 0) return 'clear_day'; // Cerah
+    if (code === 1 || code === 2 || code === 3) return 'partly_cloudy_day'; // Berawan
+    if (code >= 45 && code <= 48) return 'fog'; // Berkabut
+    if (code >= 51 && code <= 67) return 'rainy'; // Hujan ringan/sedang
+    if (code >= 80 && code <= 82) return 'pouring'; // Hujan lebat
+    if (code >= 95 && code <= 99) return 'thunderstorm'; // Badai Petir
+    return 'cloud'; // Default
+}
+
+// Tarik data cuaca dari Open-Meteo
+async function fetchWeather(city) {
+    try {
+        if (elWeatherTemp) elWeatherTemp.innerText = "...";
+
+        // 1. Cari Koordinat (Latitude/Longitude) dari nama kota
+        const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`);
+        const geoData = await geoRes.json();
+
+        if (!geoData.results || geoData.results.length === 0) {
+            if (elWeatherTemp) elWeatherTemp.innerText = "N/A";
+            return;
+        }
+
+        const lat = geoData.results[0].latitude;
+        const lon = geoData.results[0].longitude;
+
+        // 2. Tarik Suhu & Cuaca berdasarkan kordinat
+        const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+        const weatherData = await weatherRes.json();
+
+        const current = weatherData.current_weather;
+
+        // Update UI
+        if (elWeatherTemp) elWeatherTemp.innerText = `${Math.round(current.temperature)}°C`;
+        if (elWeatherIcon) elWeatherIcon.innerText = getWeatherIcon(current.weathercode);
+
+    } catch (error) {
+        console.error("Gagal mengambil data cuaca:", error);
+        if (elWeatherTemp) elWeatherTemp.innerText = "Err";
+    }
+}
+
+// Inisialisasi Lokasi
+function initWeather() {
+    // Ambil kota dari memori browser, kalau kosong default ke Jakarta
+    const savedCity = localStorage.getItem('weatherCity') || 'Jakarta';
+    if (inputCity) inputCity.value = savedCity;
+
+    fetchWeather(savedCity);
+
+    // Update cuaca setiap 15 menit agar tidak boros kuota
+    setInterval(() => fetchWeather(localStorage.getItem('weatherCity') || 'Jakarta'), 15 * 60 * 1000);
+}
+
+// Event Listener Tombol Save di Setup
+if (btnSaveCity) {
+    btnSaveCity.addEventListener('click', () => {
+        const newCity = inputCity.value.trim();
+        if (newCity) {
+            localStorage.setItem('weatherCity', newCity);
+            fetchWeather(newCity); // Langsung update!
+
+            // Munculkan pesan sukses 3 detik
+            setupMsg.classList.remove('hidden');
+            setTimeout(() => setupMsg.classList.add('hidden'), 3000);
+        }
+    });
+}
+
+// Nyalakan Mesin Jam & Cuaca!
+startClock();
+initWeather();
