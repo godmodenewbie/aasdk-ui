@@ -66,7 +66,8 @@ struct AppState {
 #[derive(Clone)]
 struct AppHeadunit {
     video_tx: broadcast::Sender<bytes::Bytes>,
-    android_send: mpsc::Sender<android_auto::SendableAndroidAutoMessage>,
+    // Shared sender updated each session — touch task writes here
+    aa_msg_tx: Arc<Mutex<Option<mpsc::Sender<android_auto::SendableAndroidAutoMessage>>>>,
     android_recv: Arc<Mutex<Option<mpsc::Receiver<android_auto::SendableAndroidAutoMessage>>>>,
     config: VideoConfiguration,
     sensors: android_auto::SensorInformation,
@@ -172,7 +173,10 @@ impl AndroidAutoSensorTrait for AppHeadunit {
                 }
             }
             let m = android_auto::AndroidAutoMessage::Sensor(m3);
-            let _ = self.android_send.send(m.sendable()).await;
+            let tx = self.aa_msg_tx.lock().await;
+            if let Some(tx) = tx.as_ref() {
+                let _ = tx.send(m.sendable()).await;
+            }
             Ok(())
         } else {
             warn!("[SENSOR] Sensor {:?} not in supported list, rejecting", stype);
@@ -240,11 +244,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (video_tx, _) = broadcast::channel(1024);
     let (touch_tx, mut touch_rx) = mpsc::channel::<TouchEvent>(128);
-    let (android_send, android_recv) =
-        mpsc::channel::<android_auto::SendableAndroidAutoMessage>(50);
+    // ── Shared AA message sender: updated each session so touch task always has valid sender ──
+    // Arc<Mutex<Option<Sender>>> — None between sessions, Some(sender) during active session
+    let aa_msg_tx: Arc<Mutex<Option<mpsc::Sender<android_auto::SendableAndroidAutoMessage>>>> =
+        Arc::new(Mutex::new(None));
 
     // ── Touch Event Translator: WebSocket JSON → Android Auto protobuf ──
-    let android_send2 = android_send.clone();
+    // Uses aa_msg_tx which is updated each session, so no SendError after reconnect
+    let aa_msg_tx_touch = aa_msg_tx.clone();
     tokio::spawn(async move {
         info!("[TOUCH] Touch event translator started");
         while let Some(touch) = touch_rx.recv().await {
@@ -269,37 +276,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => android_auto::Wifi::touch_action::Enum::DRAG,
             };
             te.set_touch_action(action);
-
             i_event.touch_event = android_auto::protobuf::MessageField::some(te);
             let e = android_auto::AndroidAutoMessage::Input(i_event);
-            if let Err(e) = android_send2.send(e.sendable()).await {
-                error!("[TOUCH] Failed to inject touch into AA channel: {:?}", e);
+
+            let tx = aa_msg_tx_touch.lock().await;
+            if let Some(tx) = tx.as_ref() {
+                if let Err(err) = tx.send(e.sendable()).await {
+                    warn!("[TOUCH] Session not active, touch dropped: {:?}", err);
+                }
+            } else {
+                debug!("[TOUCH] No active session, touch dropped");
             }
         }
     });
 
-    // ── Sensor Configuration ──
+    // ── Static headunit config (video, sensor, input) — channels created fresh per session ──
     let mut sensors = HashSet::new();
     sensors.insert(android_auto::Wifi::sensor_type::Enum::DRIVING_STATUS);
     sensors.insert(android_auto::Wifi::sensor_type::Enum::NIGHT_DATA);
 
-    let headunit = AppHeadunit {
-        video_tx: video_tx.clone(),
-        android_send,
-        android_recv: Arc::new(Mutex::new(Some(android_recv))),
-        config: VideoConfiguration {
-            resolution: android_auto::Wifi::video_resolution::Enum::_720p,
-            fps: android_auto::Wifi::video_fps::Enum::_30,
-            dpi: 160,
-        },
-        sensors: android_auto::SensorInformation { sensors },
-        input_config: android_auto::InputConfiguration {
-            keycodes: vec![1, 2, 3, 4, 5],
-            touchscreen: Some((1280, 720)),
-        },
+    let base_config = VideoConfiguration {
+        resolution: android_auto::Wifi::video_resolution::Enum::_720p,
+        fps: android_auto::Wifi::video_fps::Enum::_30,
+        dpi: 160,
+    };
+    let base_sensors = android_auto::SensorInformation { sensors };
+    let base_input = android_auto::InputConfiguration {
+        keycodes: vec![1, 2, 3, 4, 5],
+        touchscreen: Some((1280, 720)),
     };
 
-    // ── Android Auto Protocol Session ──
+    // ── Android Auto Protocol Session (with per-session channel recreation) ──
+    let aa_msg_tx_session = aa_msg_tx.clone();
+    let video_tx_loop = video_tx.clone(); // clone for use inside the spawned task
     tokio::task::spawn(async move {
         info!("[AA] Building Android Auto configuration...");
         info!("[AA] Device: {} {} ({})", HU_MANUFACTURER, HU_MODEL, HU_CAR_YEAR);
@@ -320,9 +329,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 native_media:      false,
                 hide_clock:        Some(true),
             },
-            // Use the crate's built-in cert (JVC Kenwood, signed by Google Automotive Link).
-            // The UnsupportedCertVersion issue is fixed by the [patch.crates-io] in Cargo.toml
-            // which replaces rustls-webpki with a fork supporting X.509 v1 certs.
             custom_certificate: None,
         };
 
@@ -330,21 +336,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             info!("[AA] ══ Waiting for USB phone connection... ══");
-            info!("[AA]    (plug in your Android phone via USB now)");
 
-            let b = Box::new(headunit.clone());
+            // Create a FRESH channel for each session.
+            // This ensures the touch task always has a valid sender for the current session.
+            let (session_tx, session_rx) =
+                mpsc::channel::<android_auto::SendableAndroidAutoMessage>(50);
+
+            // Publish sender so touch task can use it
+            *aa_msg_tx_session.lock().await = Some(session_tx.clone());
+
+            let headunit = AppHeadunit {
+                video_tx: video_tx_loop.clone(),
+                aa_msg_tx: aa_msg_tx_session.clone(),
+                android_recv: Arc::new(Mutex::new(Some(session_rx))),
+                config: base_config.clone(),
+                sensors: base_sensors.clone(),
+                input_config: base_input.clone(),
+            };
+
+            let b = Box::new(headunit);
             let mut joinset = tokio::task::JoinSet::new();
             match b.run(config.clone(), &mut joinset, &setup).await {
-                Ok(_) => {
-                    info!("[AA] Session ended normally.");
-                }
-                Err(e) => {
-                    error!("[AA] Session error: {}", e);
-                    error!("[AA] ══ If you see TLS/SSL errors, ensure Cargo.toml has the");
-                    error!("[AA]    [patch.crates-io] rustls-webpki entry. ══");
-                }
+                Ok(_) => info!("[AA] Session ended normally."),
+                Err(e) => error!("[AA] Session error: {}", e),
             }
             joinset.join_all().await;
+
+            // Invalidate sender so touch events are cleanly dropped between sessions
+            *aa_msg_tx_session.lock().await = None;
             info!("[AA] Restarting session loop in 2 seconds...");
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
