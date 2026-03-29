@@ -288,14 +288,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         android_send,
         android_recv: Arc::new(Mutex::new(Some(android_recv))),
         config: VideoConfiguration {
-            resolution: android_auto::Wifi::video_resolution::Enum::_1080p,
+            resolution: android_auto::Wifi::video_resolution::Enum::_720p,
             fps: android_auto::Wifi::video_fps::Enum::_30,
             dpi: 160,
         },
         sensors: android_auto::SensorInformation { sensors },
         input_config: android_auto::InputConfiguration {
             keycodes: vec![1, 2, 3, 4, 5],
-            touchscreen: Some((1920, 1080)),
+            touchscreen: Some((1280, 720)),
         },
     };
 

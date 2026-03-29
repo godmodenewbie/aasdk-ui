@@ -2,8 +2,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const loader = document.getElementById("loader");
 
     // Must match Rust backend VideoConfiguration resolution
-    const AA_WIDTH = 1920;
-    const AA_HEIGHT = 1080;
+    const AA_WIDTH = 1280;
+    const AA_HEIGHT = 720;
 
     // -----------------------------------------------------------------
     // 1. BROADWAY H.264 NAL DECODER SETUP
@@ -96,7 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 3. TOUCH COORDINATE MAPPING (CSS → Android Auto 1920×1080)
     // -----------------------------------------------------------------
     const ACTION_DOWN = 0;
-    const ACTION_UP   = 1;
+    const ACTION_UP = 1;
     const ACTION_MOVE = 2;
 
     const sendTouch = (action, clientX, clientY) => {
@@ -104,14 +104,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!videoCanvas) return;
 
         const rect = videoCanvas.getBoundingClientRect();
-        const cssWidth  = rect.width;
+        const cssWidth = rect.width;
         const cssHeight = rect.height;
 
         // Handle letterbox/pillarbox offsets so clicks map to actual video area
         const videoRatio = AA_WIDTH / AA_HEIGHT;
-        const cssRatio   = cssWidth / cssHeight;
+        const cssRatio = cssWidth / cssHeight;
 
-        let displayedWidth  = cssWidth;
+        let displayedWidth = cssWidth;
         let displayedHeight = cssHeight;
         let offsetX = 0;
         let offsetY = 0;
@@ -127,12 +127,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const relX = clientX - rect.left - offsetX;
-        const relY = clientY - rect.top  - offsetY;
+        const relY = clientY - rect.top - offsetY;
 
         // Ignore taps in black bar regions
         if (relX < 0 || relX > displayedWidth || relY < 0 || relY > displayedHeight) return;
 
-        const mappedX = Math.max(0, Math.min(AA_WIDTH  - 1, Math.round((relX / displayedWidth)  * AA_WIDTH)));
+        const mappedX = Math.max(0, Math.min(AA_WIDTH - 1, Math.round((relX / displayedWidth) * AA_WIDTH)));
         const mappedY = Math.max(0, Math.min(AA_HEIGHT - 1, Math.round((relY / displayedHeight) * AA_HEIGHT)));
 
         ws.send(JSON.stringify({ action, x: mappedX, y: mappedY }));
