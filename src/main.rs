@@ -20,55 +20,52 @@ use tower_http::services::ServeDir;
 use tracing::{error, info};
 
 const CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
-MIIDtTCCAp2gAwIBAgIUA0WUNdRxHra38QPH0C9Pi/ZAp6wwDQYJKoZIhvcNAQEL\n\
-BQAwWzELMAkGA1UEBhMCVVMxEzARBgNVBAgMCkNhbGlmb3JuaWExFjAUBgNVBAcM\n\
-DU1vdW50YWluIFZpZXcxHzAdBgNVBAoMFkdvb2dsZSBBdXRvbW90aXZlIExpbmsw\n\
-HhcNMjYwMzI5MTExNTA3WhcNMzYwMzI2MTExNTA3WjBTMQswCQYDVQQGEwJKUDEO\n\
-MAwGA1UECAwFVG9reW8xETAPBgNVBAcMCEhhY2hpb2ppMRQwEgYDVQQKDAtKVkMg\n\
-S2Vud29vZDELMAkGA1UECwwCMDEwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK\n\
-AoIBAQCpwzTLcgpSUtU39MLC2x7XWT7dJyfLg2Lgy22GwjNPXHql/Q2WA4qOt0sf\n\
-QA0IhiBu8KSQBC7sDTxfr2sZRmA+XaaBUmBj85Q2EO367395KIZ0kRXBJzqOxcKB\n\
-AzL0TVix7lrhekLNK73zNp/21bpp/fCNIWlk1K5rbFjLLWgVl9v180oPMSRF+TtB\n\
-KARNqniqOvapizC5ROfF+6nCiS0W7o7kz3bU/uoKxgHMvYKh7uUowcCTsML3cEYt\n\
-1HGaEZOQEHzQvislGCBHX2Lwtd5/n4sBuNYlmxDA+qB2O3Uh/zi6Sa+57Wo5ThAY\n\
-svybLvdSUaH4qIlmLgP/hYwEPvezAgMBAAGjeTB3MAkGA1UdEwQCMAAwCwYDVR0P\n\
-BAQDAgTwMB0GA1UdJQQWMBQGCCsGAQUFBwMCBggrBgEFBQcDATAdBgNVHQ4EFgQU\n\
-awE+4vUzcl4LqOnXfnD+ShtOhE0wHwYDVR0jBBgwFoAUjr/BdTbLVgLa8sGzFNDb\n\
-cmV8NQUwDQYJKoZIhvcNAQELBQADggEBAEl5axocVAAP5lDpdA9HVjML+fE/Fcdz\n\
-8v/Doc5DtV/dQLK+kQg7rLKBreSr5+/EMeqHTUkPTnnsjvIFUlvd/yF0p9+xQRYk\n\
-WyWidwuM3lyI9/y91QA9muFI7v83CEv8k/V5OSysmSuJapsUj738wzP+jV0YR6Em\n\
-NCn5ZANDpNXenG/R0qFe69EpfIVH3b+0jWQoUyhYfKRNdb37HdCxiwk14f0me8rP\n\
-hO49WtcnaDQ+OxhcuSgttZvlkWrQ5upLg0Bg34BNcd6TstDHywpLeYrI3irAsTVH\n\
-mxKGPoMpI25VykZamJxhPSGy0BgUYWZArMrM9nMSuGT0OIDGmdjUeEI=\n\
+MIIDKTCCAhGgAwIBAgIUcCv02YtqjLw0zJQiObZFcxPCCQEwDQYJKoZIhvcNAQEL\n\
+BQAwJDEQMA4GA1UECgwHRXhhbXBsZTEQMA4GA1UEAwwHRXhhbXBsZTAeFw0yNjAz\n\
+MjkxMTMyNDRaFw0zNjAzMjYxMTMyNDRaMCQxEDAOBgNVBAoMB0V4YW1wbGUxEDAO\n\
+BgNVBAMMB0V4YW1wbGUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCs\n\
+d0MFVD9Rw6J1kVWpJuNUn4LPfNDrWm03tMgmOWDjFywqmBsRaZnwoIovI0UhTXac\n\
+Nz02PO14OGv+0IdkWOvT0S0G7h9NkKsQ2NFQmvvfKRjiVq52y+x27YVkEWsH4bZ1\n\
+y2ucIoBuA24b6k9nZsqGChOhrHE6waIWNwrh8d+2Oae8F5iWZiQfjZj4m534PQ1r\n\
+TrnGHEdexKJmNoSlAChdtDy2v+7az9uhqdcvtFlSC8Aa/+FyBb2s4rj5yaRHL5++\n\
+HhRsS0cchkijEJL0V9S3GQvnxJ0lirLmWoojtHCbWvtc6YdiNiLl14jURg+U6MMs\n\
+JTXyKeVbhWwvc8Vss/z9AgMBAAGjUzBRMB0GA1UdDgQWBBR2fy86e4/rGI7FBM53\n\
+4GkMxd4zjTAfBgNVHSMEGDAWgBR2fy86e4/rGI7FBM534GkMxd4zjTAPBgNVHRMB\n\
+Af8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCbX9SeIMaRb9RSg4oxxukXwPzj\n\
+JonOdiontBZAeYsIY+OMyUeApsD8aVk7BnhzHxcayP/d//sgsGUZV2f34/V5Whg5\n\
+gewY8MXptaiAng3RXadbPHVU75P5BPrBZZ+FUSuTo2i3s0a1R3WSd+UEjhY45TCa\n\
+cxmnolFClzN3ACZpqbYaBcWRw4iiZuesCJh5b2+qXA52mHk7aa/Zu4xiDYodJ/2y\n\
+/3gfCp+Smpu5TLab6xU7COXAG2rvIknMNVCZxUVMYgW/dYKT3723pzWnXYUwP20R\n\
+VpzCr4vR3DQW6Ru7onFJhgxd+fHCR0v98vMPM4u8Hs6TmGpsobiUp/PZ0WM9\n\
 -----END CERTIFICATE-----\n";
 
 const KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCpwzTLcgpSUtU3\n\
-9MLC2x7XWT7dJyfLg2Lgy22GwjNPXHql/Q2WA4qOt0sfQA0IhiBu8KSQBC7sDTxf\n\
-r2sZRmA+XaaBUmBj85Q2EO367395KIZ0kRXBJzqOxcKBAzL0TVix7lrhekLNK73z\n\
-Np/21bpp/fCNIWlk1K5rbFjLLWgVl9v180oPMSRF+TtBKARNqniqOvapizC5ROfF\n\
-+6nCiS0W7o7kz3bU/uoKxgHMvYKh7uUowcCTsML3cEYt1HGaEZOQEHzQvislGCBH\n\
-X2Lwtd5/n4sBuNYlmxDA+qB2O3Uh/zi6Sa+57Wo5ThAYsvybLvdSUaH4qIlmLgP/\n\
-hYwEPvezAgMBAAECggEAE3K9laEW9Z9vtd1ggpo/ykP7I7LcqEABD+e+QHX3Etxx\n\
-YJrA97KoKPlurcHUvGlBRfRjpewUxA4wIHYkOt0JIZvw+1fImyrIi/kcimbtn5+4\n\
-55nHeD1aRAj743POXpaN1rSLzNEI3iBovng/kzOhC4uAB2sQe/CxmrTq5zvodLCk\n\
-7IKKcI23vWioGOeTul+CBaMOXz+rAsqjfNfytxQl3q/QewHh9+iP1cYpP+Syjc8n\n\
-8Ye4DcJNAW8obsXSD5n/VRl+slt0IzDmNx4zLo8a5PMM6ZQjIqmqxBYdhTWUW+iY\n\
-OMo/BErpiyaFEa/O9T6NuqOzIWjrzBE+c6+C0LSEoQKBgQDr89lyeAM6uohCLknz\n\
-dVZsSe5BwVu5LgZ7zqBDkXT7uYZ57DK8JHkQoqa5ymQKwf47oOX7l0KBwl3IFY/Q\n\
-nQu3dyz7t0HcYg9jVrZxKvCOAuRTnpIzI7w8miRAFvAUlwJgAQdBUEVYVSYQmFH9\n\
-lFI3piYUwATzAg2SzXadV05jjwKBgQC4L6w43a++VusgBwNHMoG5jLmuJTe1pyWo\n\
-Z1nHD24KQuPQaIGOB5aiOfR9IWEorzD6P7iHA/z1YnvbUXlh7b7WiT57YFV9CyXg\n\
-iWZx84TjyMT5CV82nrBoe14p+f0sZFt+y/8y3G3n8ygggBOBg5sLdqhJQyOdUC24\n\
-52Mift0HnQKBgBhCP+8G674UA4JaY/wF6lbD2x0jlhyZ4MzF17Bauh5PWsYaRLUX\n\
-QuM09dNQPazleRAEYODXEl1o8F9r6BdYriW0uQlANCNGabKa7bMA6S6QmY0HVpyv\n\
-ZeENMADu2swjInlgYbCTYi3Mw1cdcgCSSUmzaWLkwx2A7ohTW4idu099AoGBAI7M\n\
-Fx/3b5uIU75+8WGvnLe4jPSg0jI5po6LoiUcp1m5Rlp7y4XMCFM5z3179ZHPUY+S\n\
-+4Nh6ips8k21OwBbjItT2Gda5qyNig4tOIm8HRlkvKG/TFxSZ755dyXgNRLHs8/4\n\
-ZKCQGX2tHT0lTvooiHo4wnwaW3BJi0lBy7Ag30hZAoGBAOVsU4VQALgsDyojXBQi\n\
-vDaejzKhBELHSo8a1LbfiyZWAL/gtDgsX/3+o3dqUIEL5ko+Bd28Bxixditbyu27\n\
-M7EsRkIwk6eyD4VnubhAWbJZg2ZvBeLWfdvdBPcQQXnvCXMwYw4gjxKbZYx7gD0P\n\
-x7065yanuTIWabH7lKDVcGZN\n\
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCsd0MFVD9Rw6J1\n\
+kVWpJuNUn4LPfNDrWm03tMgmOWDjFywqmBsRaZnwoIovI0UhTXacNz02PO14OGv+\n\
+0IdkWOvT0S0G7h9NkKsQ2NFQmvvfKRjiVq52y+x27YVkEWsH4bZ1y2ucIoBuA24b\n\
+6k9nZsqGChOhrHE6waIWNwrh8d+2Oae8F5iWZiQfjZj4m534PQ1rTrnGHEdexKJm\n\
+NoSlAChdtDy2v+7az9uhqdcvtFlSC8Aa/+FyBb2s4rj5yaRHL5++HhRsS0cchkij\n\
+EJL0V9S3GQvnxJ0lirLmWoojtHCbWvtc6YdiNiLl14jURg+U6MMsJTXyKeVbhWwv\n\
+c8Vss/z9AgMBAAECggEAAqx2pYaA1MuroRb3tP+dVpqCdKUCuCNWvh5XXABXuC2L\n\
+yb1B7iss78YNXl21nKaOyC0zDbw0EkENq42gC7Y1Mbt0bz8RzSoI/OHfnNhKP1Nr\n\
+x1aArebLa6yS/NIoTp75LSpSKMGALDRxaI1hXcECMsHFPCRoPPjzglSoHoiZZ0HH\n\
+C70dCHov8jkgwpg8ARAm4lYMSiffpRpgO04sURc6607xAyPFqbnY+6Gj0UoMTYQs\n\
+WkwciIJ7fX+pZTvpW4rgeWm8CeHyfi65r8as/hqhypf5XFfLGyfNZYIxIhzu1aW9\n\
+k7LTBDogAOorN+MDyFzbJgoGFwmG0VEAnRoCyWL/AQKBgQDWZEi4zReunMjRRzAi\n\
+DGZqdi1KD6NPgfDNTHqTAET8DDV4bGHlZbHHI+YHKX9h3r310WL5klkbb3eFSZeH\n\
+quzjauAoCsgXVxZaCxNCWFXLGvKSto8t3foRLm7Jik5cn2XGYC80W6wQIPIHB3St\n\
+q7qNOVQRH4D4MjCqn3nz5iJXKQKBgQDN7/T6mR/9eGtV34gOvnHcyY6iDh3OSy82\n\
+cNAyVTknpbASYVnNnY5HhSrBLQs+HIG6jAQA6gBJjUEmXDZ/hQVASJtKNaxqMfsN\n\
+NSBllAoge3QXWTue6huUSSiRJv0FOUsSW13sdiAwPUtEz0djE1msJexS6vIIqmJh\n\
+SMNr4dYVtQKBgQDOFtLNSuHkCXUFsC/12wOsfXOlyQiNCnUHdOgzXUPzIm1YGJ+2\n\
+m55ctwaNhfechjkHD0PcczFTLUCwkQCn+sgDCR73fv2/agjjf9gAo9e9CWd7XyCd\n\
+z89uKrt244vWf6efHaDi7OinDHR8C0+/DuCilyRX3XflnqGnsuvRaD1EmQKBgBaP\n\
+AYvt+CYg6ckXWmUbEYf5AEnaOAOgEsTo6LWKxl8EdFwfE+JFLw/Ak6VjlMayArf3\n\
+nHypJWzpL0jPcxzW6nNXQMOJS6C6ZuDUf/8Aj3dtbpMcMD7BMFI3DV2RIshOtV2G\n\
+aqx7aB1AqZ0ZA53jwb/sy41ttSOj3nD/soB/1Z69AoGALOn3YmInC8NM5fffIxHG\n\
+DUg/0uzEvLQB83wZJaieUY8R00236POC7lIQLqc95DZ54HeOYhQ5uRwJkY80RfB2\n\
+Ufdydug9NAhtGo1pPH25Rzz7yI6n6HUuDw1Dp+cVutR7RVgIox1iKNpPkfPWbdjC\n\
+5Fx6mE/RgmfBz1j32OXgBtg=\n\
 -----END PRIVATE KEY-----\n";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -256,17 +253,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::task::spawn(async move {
         let config = android_auto::AndroidAutoConfiguration {
             unit: android_auto::HeadUnitInfo {
-                name: "Debian".to_string(),
-                car_model: "VM Headunit".to_string(),
-                car_year: "2024".to_string(),
-                car_serial: "AASDK-1".to_string(),
-                left_hand: true,
-                head_manufacturer: "Linux".to_string(),
-                head_model: "AASDK-UI".to_string(),
-                sw_build: "1.0".to_string(),
-                sw_version: "1.0".to_string(),
-                native_media: false,
-                hide_clock: None,
+                name: "Example".to_string(),
+                car_model: "Example".to_string(),
+                car_year: "1943".to_string(),
+                car_serial: "42".to_string(),
+                left_hand: false,
+                head_manufacturer: "Example".to_string(),
+                head_model: "Example".to_string(),
+                sw_build: "37".to_string(),
+                sw_version: "1.2.3".to_string(),
+                native_media: true,
+                hide_clock: Some(true),
             },
             custom_certificate: Some((
                 CERT_PEM.as_bytes().to_vec(),
