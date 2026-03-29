@@ -1,0 +1,45 @@
+[package]
+name = "android-auto"
+description = "A crate for implementing the android auto protocol."
+version = "0.3.3"
+edition = "2024"
+repository = "https://github.com/uglyoldbob/android-auto.git"
+publish = ["crates-io"]
+license = "LGPL-3.0-or-later"
+
+[dependencies]
+async-trait = "0.1.88"
+aws-lc-rs = { version = "1.13.1", features = ["bindgen"] }
+bitfield = "0.19.0"
+bluetooth-rust = { version = "0.2.4", optional = true }
+enum_dispatch = "0.3.13"
+futures = "0.3.30"
+log = "0.4.27"
+nusb = { version = "0.2.2", features = ["tokio"], optional = true }
+protobuf = "3.7.2"
+rustls = { version = "0.23.27", features=["ring"]}
+serde = {version = "1.0.219", features = ["derive"]}
+tokio = { version = "1.40.0", features = ["full"] }
+webpki-roots = "0.26.9"
+
+[build-dependencies]
+protobuf-codegen = "3.7.2"
+
+[dev-dependencies]
+cpal = "0.17.3"
+eframe = "0.33.3"
+nmrs = "2.0.1"
+openh264 = "0.9.3"
+ringbuf = "0.4.8"
+simple_logger = "5.2.0"
+zbus = "5.13.2"
+zvariant = "5.9.2"
+
+[features]
+default = ["usb"]
+wireless = ["dep:bluetooth-rust"]
+usb = ["dep:nusb"]
+
+#this patch is needed for the v1 certificate in src/cert.rs
+[patch.crates-io]
+rustls-webpki = { git = "https://github.com/uglyoldbob/webpki", branch = "main5" }
