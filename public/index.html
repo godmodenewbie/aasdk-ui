@@ -114,7 +114,7 @@
                 <span class="text-[10px] font-bold tracking-tighter uppercase">Music</span>
             </button>
 
-            <button
+            <button id="btn-setup"
                 class="w-full text-gray-500 opacity-60 hover:text-[#81ecff] hover:opacity-100 transition-all flex flex-col items-center gap-1">
                 <span class="material-symbols-outlined text-3xl">settings</span>
                 <span class="text-[10px] font-bold tracking-tighter uppercase">Setup</span>
@@ -129,23 +129,18 @@
 
     <main class="ml-20 flex-1 relative flex flex-col h-screen overflow-hidden">
 
-        <header
-            class="absolute top-0 right-0 left-0 h-16 flex justify-between items-center px-10 w-full z-40 bg-gradient-to-b from-background to-transparent pointer-events-none">
-            <div class="flex items-center gap-4">
-                <span class="text-on-surface-variant font-medium font-body text-sm tracking-wide">The Obsidian
-                    Navigator</span>
+        <header <div class="flex items-center gap-6 font-headline">
+            <div class="flex flex-col items-end">
+                <span id="top-time" class="text-2xl font-bold leading-none">--:--</span>
+                <span id="top-date"
+                    class="text-[10px] text-on-surface-variant font-body uppercase tracking-widest">---</span>
             </div>
-            <div class="flex items-center gap-8 pointer-events-auto">
-                <div class="flex items-center gap-6 font-headline">
-                    <div class="flex flex-col items-end">
-                        <span class="text-2xl font-bold leading-none">22:45</span>
-                    </div>
-                    <div class="h-8 w-[1px] bg-outline-variant/30"></div>
-                    <div class="flex items-center gap-2">
-                        <span class="material-symbols-outlined text-primary text-xl">partly_cloudy_day</span>
-                        <span class="text-xl font-bold">18°C</span>
-                    </div>
-                </div>
+            <div class="h-8 w-[1px] bg-outline-variant/30"></div>
+            <div class="flex items-center gap-2">
+                <span id="top-weather-icon"
+                    class="material-symbols-outlined text-primary text-xl">partly_cloudy_day</span>
+                <span id="top-weather-temp" class="text-xl font-bold">--°C</span>
+            </div>
             </div>
         </header>
 
@@ -203,6 +198,29 @@
                 <canvas id="videoCanvas"></canvas>
             </div>
 
+        </div>
+        <div id="setup-dashboard"
+            class="hidden mt-16 p-10 h-[calc(100vh-64px)] w-full relative z-20 flex flex-col gap-6">
+            <h2 class="font-headline text-4xl font-bold text-white mb-4">System Setup</h2>
+
+            <div class="glass-card p-8 rounded-[2rem] border border-outline-variant/20 max-w-2xl">
+                <div class="flex items-center gap-4 mb-6">
+                    <span class="material-symbols-outlined text-primary text-3xl">location_on</span>
+                    <h3 class="font-headline text-2xl font-bold">Weather Location</h3>
+                </div>
+                <p class="text-on-surface-variant mb-6 text-sm">Enter your city to get real-time weather updates on the
+                    dashboard.</p>
+
+                <div class="flex gap-4">
+                    <input type="text" id="input-city" placeholder="e.g., Jakarta, Bandung, Tokyo"
+                        class="flex-1 bg-surface-container-highest border border-outline-variant/30 rounded-xl px-6 py-4 text-white focus:outline-none focus:border-primary font-body text-lg">
+                    <button id="btn-save-city"
+                        class="bg-primary text-background font-bold px-8 py-4 rounded-xl hover:bg-primary-dim transition-colors text-lg">
+                        Save
+                    </button>
+                </div>
+                <p id="setup-msg" class="text-primary mt-4 font-bold text-sm hidden">Location updated successfully!</p>
+            </div>
         </div>
     </main>
 
