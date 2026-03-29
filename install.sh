@@ -30,8 +30,10 @@ BROADWAY_URL="https://raw.githubusercontent.com/mbebenita/Broadway/master/Player
 
 # Download the required files directly from the Broadway repository into the public folder
 wget -q -nc -O public/YUVCanvas.js "$BROADWAY_URL/YUVCanvas.js" || echo "YUVCanvas.js already exists"
-wget -q -nc -O public/Decoder.js "$BROADWAY_URL/Decoder.js" || echo "Decoder.js already exists"
-wget -q -nc -O public/Player.js "$BROADWAY_URL/Player.js" || echo "Player.js already exists"
+wget -q -nc -O public/Decoder.js   "$BROADWAY_URL/Decoder.js"   || echo "Decoder.js already exists"
+wget -q -nc -O public/Player.js    "$BROADWAY_URL/Player.js"    || echo "Player.js already exists"
+# avc.wasm is the H.264 WebAssembly decoder - REQUIRED by Decoder.js at runtime!
+wget -q -nc -O public/avc.wasm     "$BROADWAY_URL/avc.wasm"     || echo "avc.wasm already exists"
 
 echo "      Broadway assets downloaded."
 
