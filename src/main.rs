@@ -93,7 +93,7 @@ struct AppHeadunit {
 #[async_trait::async_trait]
 impl android_auto::AndroidAutoMediaStatusTrait for AppHeadunit {
     async fn receive_media_metadata(&self, m: android_auto::Wifi::MediaInfoChannelMetadataData) {
-        info!("[MEDIA] Track: {} | Artist: {:?}", m.track_name, m.artist_name);
+        info!("[MEDIA] Track: {} | Artist: {}", m.track_name, m.artist_name.as_deref().unwrap_or("Unknown"));
         
         let mut art_b64 = None;
         if let Some(art_bytes) = &m.album_art {
@@ -376,6 +376,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aa_msg_tx_session = aa_msg_tx.clone();
     let video_tx_loop = video_tx.clone(); // clone for use inside the spawned task
     let audio_tx_loop = audio_tx.clone(); // clone for audio broadcast inside spawned task
+    let metadata_tx_loop = metadata_tx.clone(); // clone before move into spawn closure
     tokio::task::spawn(async move {
         info!("[AA] Building Android Auto configuration...");
         info!("[AA] Device: {} {} ({})", HU_MANUFACTURER, HU_MODEL, HU_CAR_YEAR);
@@ -415,7 +416,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let headunit = AppHeadunit {
                 video_tx: video_tx_loop.clone(),
                 audio_tx: audio_tx_loop.clone(),
-                metadata_tx: metadata_tx.clone(),
+                metadata_tx: metadata_tx_loop.clone(),
                 aa_msg_tx: aa_msg_tx_session.clone(),
                 android_recv: Arc::new(Mutex::new(Some(session_rx))),
                 config: base_config.clone(),
