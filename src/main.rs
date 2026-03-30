@@ -93,8 +93,10 @@ struct AppHeadunit {
 #[async_trait::async_trait]
 impl android_auto::AndroidAutoMediaStatusTrait for AppHeadunit {
     async fn receive_media_metadata(&self, m: android_auto::Wifi::MediaInfoChannelMetadataData) {
-        info!("[MEDIA] Track: {} | Artist: {}", m.track_name, m.artist_name.as_deref().unwrap_or("Unknown"));
-        
+        let title  = m.track_name.as_deref().unwrap_or("Unknown");
+        let artist = m.artist_name.as_deref().unwrap_or("Unknown");
+        info!("[MEDIA] Track: {} | Artist: {}", title, artist);
+
         let mut art_b64 = None;
         if let Some(art_bytes) = &m.album_art {
             if !art_bytes.is_empty() {
@@ -104,9 +106,9 @@ impl android_auto::AndroidAutoMediaStatusTrait for AppHeadunit {
 
         let json = serde_json::json!({
             "type": "metadata",
-            "title": m.track_name,
-            "artist": m.artist_name.unwrap_or_default(),
-            "album": m.album_name.unwrap_or_default(),
+            "title": m.track_name.as_deref().unwrap_or(""),
+            "artist": m.artist_name.as_deref().unwrap_or(""),
+            "album": m.album_name.as_deref().unwrap_or(""),
             "albumArtBase64": art_b64,
         });
 
