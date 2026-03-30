@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-android-auto = { version = "0.3.5", features = ["usb"] }
+android-auto = { path = "./android-auto-0.3.5", features = ["usb"] }
 tokio = { version = "1.37.0", features = ["full"] }
 axum = { version = "0.7.5", features = ["ws", "macros"] }
 futures = "0.3.30"
