@@ -164,6 +164,32 @@ function connect() {
     };
 
     ws.onmessage = (event) => {
+        // 1. CEK APAKAH INI DATA TEKS (JSON) DARI RUST UNTUK INFO LAGU
+        if (typeof event.data === "string") {
+            try {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "metadata") {
+                    // Update Judul & Artis di Homescreen!
+                    const elTitle = document.getElementById("media-title");
+                    const elArtist = document.getElementById("media-artist");
+                    const elArt = document.getElementById("media-art");
+
+                    if (elTitle) elTitle.innerText = data.title || "Unknown Title";
+                    if (elArtist) elArtist.innerText = data.artist || "Unknown Artist";
+
+                    // Kalau Rust mengirim gambar Base64, tampilkan. Kalau tidak, biarkan default.
+                    if (elArt && data.albumArtBase64) {
+                        elArt.src = `data:image/jpeg;base64,${data.albumArtBase64}`;
+                    }
+                }
+            } catch (e) {
+                console.error("[WS] Gagal parse JSON metadata:", e);
+            }
+            return; // Berhenti di sini, jangan lanjut ke proses video
+        }
+
+        // 2. JIKA BUKAN STRING, BERARTI INI BINARY (VIDEO/AUDIO)
         if (!(event.data instanceof ArrayBuffer)) return;
         const bytes = new Uint8Array(event.data);
         if (bytes.length < 2) return;
