@@ -12,6 +12,8 @@ use axum::{
     routing::get,
     Router,
 };
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, net::SocketAddr, sync::Arc};
@@ -71,6 +73,7 @@ const MSG_SPEECH: u8 = 0x04;
 struct AppState {
     video_tx: broadcast::Sender<bytes::Bytes>,
     audio_tx: broadcast::Sender<bytes::Bytes>,
+    metadata_tx: broadcast::Sender<String>,
     touch_tx: mpsc::Sender<TouchEvent>,
 }
 
@@ -78,12 +81,44 @@ struct AppState {
 struct AppHeadunit {
     video_tx: broadcast::Sender<bytes::Bytes>,
     audio_tx: broadcast::Sender<bytes::Bytes>,
+    metadata_tx: broadcast::Sender<String>,
     // Shared sender updated each session — touch task writes here
     aa_msg_tx: Arc<Mutex<Option<mpsc::Sender<android_auto::SendableAndroidAutoMessage>>>>,
     android_recv: Arc<Mutex<Option<mpsc::Receiver<android_auto::SendableAndroidAutoMessage>>>>,
     config: VideoConfiguration,
     sensors: android_auto::SensorInformation,
     input_config: android_auto::InputConfiguration,
+}
+
+#[async_trait::async_trait]
+impl android_auto::AndroidAutoMediaStatusTrait for AppHeadunit {
+    async fn receive_media_metadata(&self, m: android_auto::Wifi::MediaInfoChannelMetadataData) {
+        info!("[MEDIA] Track: {} | Artist: {:?}", m.track_name, m.artist_name);
+        
+        let mut art_b64 = None;
+        if let Some(art_bytes) = &m.album_art {
+            if !art_bytes.is_empty() {
+                art_b64 = Some(BASE64.encode(art_bytes));
+            }
+        }
+
+        let json = serde_json::json!({
+            "type": "metadata",
+            "title": m.track_name,
+            "artist": m.artist_name.unwrap_or_default(),
+            "album": m.album_name.unwrap_or_default(),
+            "albumArtBase64": art_b64,
+        });
+
+        if let Ok(json_str) = serde_json::to_string(&json) {
+            let _ = self.metadata_tx.send(json_str);
+        }
+    }
+
+    async fn receive_playback_status(&self, p: android_auto::Wifi::MediaInfoChannelPlaybackData) {
+        debug!("[MEDIA] Playback state: {:?}", p.playback_state);
+        // We can optionally send playback status (PLAY/PAUSE/TRACK_CHANGE) to UI here
+    }
 }
 
 #[async_trait::async_trait]
@@ -273,6 +308,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (video_tx, _) = broadcast::channel::<bytes::Bytes>(512);
     let (audio_tx, _) = broadcast::channel::<bytes::Bytes>(256);
+    let (metadata_tx, _) = broadcast::channel::<String>(32);
     let (touch_tx, mut touch_rx) = mpsc::channel::<TouchEvent>(128);
     // ── Shared AA message sender: updated each session so touch task always has valid sender ──
     // Arc<Mutex<Option<Sender>>> — None between sessions, Some(sender) during active session
@@ -379,6 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let headunit = AppHeadunit {
                 video_tx: video_tx_loop.clone(),
                 audio_tx: audio_tx_loop.clone(),
+                metadata_tx: metadata_tx.clone(),
                 aa_msg_tx: aa_msg_tx_session.clone(),
                 android_recv: Arc::new(Mutex::new(Some(session_rx))),
                 config: base_config.clone(),
@@ -402,7 +439,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // ── Web UI Server ──
-    let state = Arc::new(AppState { video_tx, audio_tx, touch_tx });
+    let state = Arc::new(AppState { video_tx, audio_tx, metadata_tx, touch_tx });
     let app = Router::new()
         .nest_service("/", ServeDir::new("public"))
         .route("/ws", get(ws_handler))
@@ -426,8 +463,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
     let mut video_rx = state.video_tx.subscribe();
 
-    // Send loop: merge video + audio into one WebSocket stream (prefixed binary messages)
+    // Send loop: merge video + audio + metadata into one WebSocket stream
     let mut audio_rx = state.audio_tx.subscribe();
+    let mut metadata_rx = state.metadata_tx.subscribe();
     let mut send_task = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -457,6 +495,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             warn!("[WS] Audio lagged by {} chunks", n);
                         }
                         Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                msg = metadata_rx.recv() => {
+                    match msg {
+                        Ok(json_text) => {
+                            if sender.send(WsMessage::Text(json_text)).await.is_err() {
+                                info!("[WS] Client disconnected (metadata send failed)");
+                                break;
+                            }
+                        }
+                        Err(_) => break,
                     }
                 }
             }

@@ -223,6 +223,15 @@ impl ConnectionType {
     }
 }
 
+/// A trait for receiving media status information
+#[async_trait::async_trait]
+pub trait AndroidAutoMediaStatusTrait: Send + Sync {
+    /// Received metadata for currently playing media
+    async fn receive_media_metadata(&self, _metadata: Wifi::MediaInfoChannelMetadataData) {}
+    /// Received playback status for currently playing media
+    async fn receive_playback_status(&self, _playback: Wifi::MediaInfoChannelPlaybackData) {}
+}
+
 /// The base trait for crate users to implement
 #[async_trait::async_trait]
 pub trait AndroidAutoMainTrait:
@@ -231,6 +240,7 @@ pub trait AndroidAutoMainTrait:
     + AndroidAutoInputChannelTrait
     + AndroidAutoAudioInputTrait
     + AndroidAutoVideoChannelTrait
+    + AndroidAutoMediaStatusTrait
     + Send
     + Sync
 {

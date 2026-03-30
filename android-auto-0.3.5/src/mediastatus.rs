@@ -88,7 +88,7 @@ impl ChannelHandlerTrait for MediaStatusChannelHandler {
         msg: AndroidAutoFrame,
         stream: &StreamMux<U, V>,
         _config: &AndroidAutoConfiguration,
-        _main: &T,
+        main: &T,
     ) -> Result<(), super::FrameIoError> {
         let channel = msg.header.channel_id;
         let msg2: Result<MediaStatusMessage, String> = (&msg).try_into();
@@ -96,9 +96,11 @@ impl ChannelHandlerTrait for MediaStatusChannelHandler {
             match msg2 {
                 MediaStatusMessage::Metadata(_, m) => {
                     log::info!("Metadata {:?}", m);
+                    main.receive_media_metadata(m).await;
                 }
                 MediaStatusMessage::Playback(_, m) => {
                     log::info!("Playback {:?}", m);
+                    main.receive_playback_status(m).await;
                 }
                 MediaStatusMessage::Invalid => {
                     log::error!("Received invalid media info frame");
